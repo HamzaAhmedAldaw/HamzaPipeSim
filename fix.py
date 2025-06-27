@@ -1,127 +1,154 @@
 #!/usr/bin/env python3
 """
-Quick fix script for the linker errors
+Automatic fix for pipeline_sim import issue
+Just run: python auto_fix_import.py
 """
 
 import os
+import sys
+import site
+import shutil
 
-def fix_network_cpp():
-    """Add missing methods to network.cpp"""
-    network_cpp_path = "core/src/network.cpp"
-    
-    # Check if file exists
-    if not os.path.exists(network_cpp_path):
-        print(f"Error: {network_cpp_path} not found!")
-        return False
-    
-    # Read the file
-    with open(network_cpp_path, 'r') as f:
-        content = f.read()
-    
-    # Check if methods already exist
-    if "is_valid()" in content and "clear()" in content:
-        print("Methods already exist in network.cpp")
-        return True
-    
-    # Add missing methods before the closing namespace brace
-    missing_methods = '''
-bool Network::is_valid() const {
-    // Basic validation
-    return !nodes_.empty() && !pipes_.empty() && 
-           (!pressure_specs_.empty() || std::any_of(nodes_.begin(), nodes_.end(),
-            [](const auto& p) { return p.second->has_pressure_bc(); }));
-}
+print("Pipeline-Sim Import Auto-Fixer")
+print("=" * 60)
 
-void Network::clear() {
-    nodes_.clear();
-    pipes_.clear();
-    node_index_.clear();
-    pipe_index_.clear();
-    pressure_specs_.clear();
-    flow_specs_.clear();
-    upstream_pipes_.clear();
-    downstream_pipes_.clear();
-    next_node_id_ = 0;
-    next_pipe_id_ = 0;
-}
+# Step 1: Find the installation
+print("\n1. Finding pipeline_sim installation...")
 
-void Network::save_to_json(const std::string& filename) const {
-    std::ofstream file(filename);
-    if (!file.is_open()) {
-        throw std::runtime_error("Cannot create file: " + filename);
-    }
-    file << "{\\n  \\"nodes\\": [],\\n  \\"pipes\\": []\\n}\\n";
-    file.close();
-}
+pkg_path = None
+try:
+    import pipeline_sim
+    pkg_path = os.path.dirname(pipeline_sim.__file__)
+    print(f"   Found at: {pkg_path}")
+except Exception as e:
+    print(f"   Error during import: {e}")
+    
+    # Search manually
+    for sp in site.getsitepackages():
+        # Check egg format
+        egg_pattern = os.path.join(sp, "pipeline_sim-0.1.0-py*.egg", "pipeline_sim")
+        import glob
+        eggs = glob.glob(egg_pattern)
+        if eggs:
+            pkg_path = eggs[0]
+            print(f"   Found in egg at: {pkg_path}")
+            break
+        
+        # Check regular
+        regular = os.path.join(sp, "pipeline_sim")
+        if os.path.exists(regular):
+            pkg_path = regular
+            print(f"   Found at: {pkg_path}")
+            break
+
+if not pkg_path:
+    print("\n✗ Cannot find pipeline_sim installation!")
+    print("  Please install it first: python setup_complete.py install")
+    sys.exit(1)
+
+# Step 2: Check for compiled extension
+print("\n2. Checking for compiled extension...")
+
+extension_file = None
+for f in os.listdir(pkg_path):
+    if f.endswith(('.pyd', '.so')):
+        extension_file = f
+        print(f"   Found: {f}")
+        break
+
+if not extension_file:
+    print("\n✗ No compiled extension found!")
+    print("  You need to build it first: python setup_complete.py build")
+    sys.exit(1)
+
+# Step 3: Fix __init__.py
+print("\n3. Fixing __init__.py...")
+
+init_path = os.path.join(pkg_path, "__init__.py")
+
+# Backup
+backup_path = init_path + ".original"
+if not os.path.exists(backup_path):
+    shutil.copy2(init_path, backup_path)
+    print(f"   Created backup: {backup_path}")
+
+# Write fixed version
+fixed_init = f'''"""Pipeline-Sim: Next-generation petroleum pipeline simulation"""
+__version__ = "0.1.0"
+
+# Direct import from the compiled extension
+import os
+import importlib.util
+
+_dir = os.path.dirname(__file__)
+_ext_path = os.path.join(_dir, "{extension_file}")
+
+if os.path.exists(_ext_path):
+    spec = importlib.util.spec_from_file_location("_pipeline_sim_core", _ext_path)
+    if spec and spec.loader:
+        _core = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(_core)
+        
+        # Import everything
+        for attr in dir(_core):
+            if not attr.startswith('_'):
+                globals()[attr] = getattr(_core, attr)
+                
+        # Handle ML if present
+        if hasattr(_core, 'ml'):
+            ml = _core.ml
+        
+        print("Successfully loaded pipeline_sim extension")
+else:
+    raise ImportError(f"Extension not found at {{_ext_path}}")
+
+# Python components (optional)
+try:
+    from .utils import *
+except ImportError:
+    pass
+
+__all__ = [n for n in globals() if not n.startswith('_')]
 '''
-    
-    # Find the last closing brace of namespace
-    last_brace = content.rfind("} // namespace pipeline_sim")
-    if last_brace == -1:
-        last_brace = content.rfind("}")
-    
-    # Insert methods before the closing brace
-    new_content = content[:last_brace] + missing_methods + "\n" + content[last_brace:]
-    
-    # Write back
-    with open(network_cpp_path, 'w') as f:
-        f.write(new_content)
-    
-    print(f"✓ Added missing methods to {network_cpp_path}")
-    return True
 
-def fix_ml_integration_includes():
-    """Add Eigen/Dense include to ml_integration.cpp"""
-    ml_cpp_path = "core/src/ml_integration.cpp"
+with open(init_path, 'w') as f:
+    f.write(fixed_init)
+
+print("   ✓ Fixed __init__.py")
+
+# Step 4: Test the fix
+print("\n4. Testing the fix...")
+
+# Force reload
+if 'pipeline_sim' in sys.modules:
+    del sys.modules['pipeline_sim']
+
+try:
+    import pipeline_sim
     
-    if not os.path.exists(ml_cpp_path):
-        print(f"Error: {ml_cpp_path} not found!")
-        return False
+    # Test imports
+    success = True
+    for cls in ['Network', 'Node', 'Pipe', 'FluidProperties']:
+        if hasattr(pipeline_sim, cls):
+            print(f"   ✓ {cls} is available")
+        else:
+            print(f"   ✗ {cls} is missing")
+            success = False
     
-    # Read the file
-    with open(ml_cpp_path, 'r') as f:
-        content = f.read()
-    
-    # Check if Eigen/Dense is already included
-    if "#include <Eigen/Dense>" in content:
-        print("Eigen/Dense already included in ml_integration.cpp")
-        return True
-    
-    # Add after other includes
-    if "#include <cmath>" in content:
-        content = content.replace("#include <cmath>", "#include <cmath>\n#include <Eigen/Dense>")
+    if success:
+        print("\n✓ SUCCESS! The import issue has been fixed!")
+        print("\nYou can now use:")
+        print("  from pipeline_sim import Network, Node, Pipe, FluidProperties, SteadyStateSolver")
+        print("\nTry running your test script again.")
     else:
-        # Add at the beginning after the header comment
-        lines = content.split('\n')
-        for i, line in enumerate(lines):
-            if line.startswith("#include"):
-                lines.insert(i, "#include <Eigen/Dense>")
-                break
-        content = '\n'.join(lines)
-    
-    # Write back
-    with open(ml_cpp_path, 'w') as f:
-        f.write(content)
-    
-    print(f"✓ Added Eigen/Dense include to {ml_cpp_path}")
-    return True
+        print("\n⚠ Partial success - some classes are missing")
+        
+except Exception as e:
+    print(f"\n✗ Import still failing: {e}")
+    print("\nThe extension file might be corrupted. Try:")
+    print("  1. python setup_complete.py clean --all")
+    print("  2. python setup_complete.py build")
+    print("  3. python setup_complete.py install")
 
-def main():
-    print("Fixing linker errors...")
-    print("=" * 50)
-    
-    # Add missing includes
-    if not os.path.exists("core/src/network.cpp"):
-        print("\nMake sure network.cpp includes <algorithm> for std::any_of")
-    
-    # Fix network.cpp
-    fix_network_cpp()
-    
-    # Fix ml_integration.cpp
-    fix_ml_integration_includes()
-    
-    print("\n✓ Fixes applied!")
-    print("\nNow run: python setup_complete.py build")
-
-if __name__ == "__main__":
-    main()
+print("\n" + "=" * 60)
+input("\nPress Enter to exit...")

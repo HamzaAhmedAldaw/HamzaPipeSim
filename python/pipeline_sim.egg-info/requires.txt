@@ -1,0 +1,16 @@
+numpy>=1.19.0
+matplotlib>=3.3.0
+pandas>=1.1.0
+scipy>=1.5.0
+scikit-learn>=0.23.0
+
+[dev]
+pytest>=6.0
+pytest-cov>=2.0
+black>=20.8b1
+flake8>=3.8.0
+mypy>=0.910
+
+[viz]
+plotly>=5.0.0
+dash>=2.0.0

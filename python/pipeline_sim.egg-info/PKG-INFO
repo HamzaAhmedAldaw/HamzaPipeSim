@@ -1,0 +1,47 @@
+Metadata-Version: 2.4
+Name: pipeline_sim
+Version: 0.1.0
+Summary: Advanced pipeline simulation framework with ML integration
+Home-page: https://github.com/HamzaAhmedAldaw/HamzaPipeSim
+Author: Hamza Ahmed
+Author-email: your.email@example.com
+Classifier: Development Status :: 3 - Alpha
+Classifier: Intended Audience :: Science/Research
+Classifier: Topic :: Scientific/Engineering
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Programming Language :: Python :: 3.13
+Classifier: Programming Language :: C++
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: numpy>=1.19.0
+Requires-Dist: matplotlib>=3.3.0
+Requires-Dist: pandas>=1.1.0
+Requires-Dist: scipy>=1.5.0
+Requires-Dist: scikit-learn>=0.23.0
+Provides-Extra: dev
+Requires-Dist: pytest>=6.0; extra == "dev"
+Requires-Dist: pytest-cov>=2.0; extra == "dev"
+Requires-Dist: black>=20.8b1; extra == "dev"
+Requires-Dist: flake8>=3.8.0; extra == "dev"
+Requires-Dist: mypy>=0.910; extra == "dev"
+Provides-Extra: viz
+Requires-Dist: plotly>=5.0.0; extra == "viz"
+Requires-Dist: dash>=2.0.0; extra == "viz"
+Dynamic: author
+Dynamic: author-email
+Dynamic: classifier
+Dynamic: description
+Dynamic: description-content-type
+Dynamic: home-page
+Dynamic: provides-extra
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary
+
+# Pipeline-Sim

@@ -1,44 +1,33 @@
 #include "pipeline_sim/network.h"
-#include <stdexcept>
-#include <fstream>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
+#include <iomanip>
+#include <stdexcept>
 
 namespace pipeline_sim {
 
 Network::Network() : next_node_id_(0), next_pipe_id_(0) {}
 
 Ptr<Node> Network::add_node(const std::string& id, NodeType type) {
-    if (nodes_.find(id) != nodes_.end()) {
-        throw std::runtime_error("Node with ID '" + id + "' already exists");
-    }
-    
     auto node = std::make_shared<Node>(id, type);
     nodes_[id] = node;
     node_index_[id] = next_node_id_++;
     
-    // Initialize connectivity
+    // Initialize empty pipe lists for this node
     upstream_pipes_[id] = std::vector<Ptr<Pipe>>();
     downstream_pipes_[id] = std::vector<Ptr<Pipe>>();
     
     return node;
 }
 
-Ptr<Node> Network::get_node(const std::string& id) const {
-    auto it = nodes_.find(id);
-    return (it != nodes_.end()) ? it->second : nullptr;
-}
-
 Ptr<Pipe> Network::add_pipe(const std::string& id,
-                            Ptr<Node> upstream,
-                            Ptr<Node> downstream,
-                            Real length,
-                            Real diameter) {
-    if (pipes_.find(id) != pipes_.end()) {
-        throw std::runtime_error("Pipe with ID '" + id + "' already exists");
-    }
-    
+                             Ptr<Node> upstream,
+                             Ptr<Node> downstream,
+                             Real length,
+                             Real diameter) {
     if (!upstream || !downstream) {
-        throw std::runtime_error("Pipe must have valid upstream and downstream nodes");
+        throw std::runtime_error("Cannot create pipe with null nodes");
     }
     
     auto pipe = std::make_shared<Pipe>(id, upstream, downstream, length, diameter);
@@ -52,33 +41,40 @@ Ptr<Pipe> Network::add_pipe(const std::string& id,
     return pipe;
 }
 
+Ptr<Node> Network::get_node(const std::string& id) const {
+    auto it = nodes_.find(id);
+    return (it != nodes_.end()) ? it->second : nullptr;
+}
+
 Ptr<Pipe> Network::get_pipe(const std::string& id) const {
     auto it = pipes_.find(id);
     return (it != pipes_.end()) ? it->second : nullptr;
 }
 
 std::vector<Ptr<Pipe>> Network::get_upstream_pipes(const Ptr<Node>& node) const {
+    if (!node) return std::vector<Ptr<Pipe>>{};
+    
     auto it = upstream_pipes_.find(node->id());
-    return (it != upstream_pipes_.end()) ? it->second : std::vector<Ptr<Pipe>>();
+    return (it != upstream_pipes_.end()) ? it->second : std::vector<Ptr<Pipe>>{};
 }
 
 std::vector<Ptr<Pipe>> Network::get_downstream_pipes(const Ptr<Node>& node) const {
+    if (!node) return std::vector<Ptr<Pipe>>{};
+    
     auto it = downstream_pipes_.find(node->id());
-    return (it != downstream_pipes_.end()) ? it->second : std::vector<Ptr<Pipe>>();
+    return (it != downstream_pipes_.end()) ? it->second : std::vector<Ptr<Pipe>>{};
 }
 
 void Network::set_pressure(const Ptr<Node>& node, Real pressure) {
-    if (!node) {
-        throw std::runtime_error("Invalid node pointer");
-    }
+    if (!node) return;
+    
     node->set_pressure_bc(pressure);
     pressure_specs_[node->id()] = pressure;
 }
 
 void Network::set_flow_rate(const Ptr<Node>& node, Real flow_rate) {
-    if (!node) {
-        throw std::runtime_error("Invalid node pointer");
-    }
+    if (!node) return;
+    
     node->set_fixed_flow_rate(flow_rate);
     flow_specs_[node->id()] = flow_rate;
 }
@@ -89,11 +85,77 @@ void Network::load_from_json(const std::string& filename) {
         throw std::runtime_error("Cannot open file: " + filename);
     }
     
-    // TODO: Implement JSON parsing
-    // For now, just close the file
-    file.close();
+    // Clear existing network
+    clear();
     
-    throw std::runtime_error("JSON parsing not yet implemented");
+    std::string line;
+    std::string section;
+    
+    while (std::getline(file, line)) {
+        // Skip empty lines and comments
+        if (line.empty() || line[0] == '#') continue;
+        
+        // Check for section headers
+        if (line == "[NODES]") {
+            section = "NODES";
+            continue;
+        } else if (line == "[PIPES]") {
+            section = "PIPES";
+            continue;
+        }
+        
+        // Parse based on current section
+        std::istringstream iss(line);
+        
+        if (section == "NODES") {
+            // Format: id type elevation pressure(optional) flow_rate(optional)
+            std::string id;
+            int type_int;
+            Real elevation = 0.0;
+            Real pressure = 0.0;
+            Real flow_rate = 0.0;
+            
+            iss >> id >> type_int;
+            
+            if (iss >> elevation) {
+                // elevation provided
+            }
+            
+            auto node = add_node(id, static_cast<NodeType>(type_int));
+            node->set_elevation(elevation);
+            
+            if (iss >> pressure) {
+                set_pressure(node, pressure);
+            }
+            
+            if (iss >> flow_rate) {
+                set_flow_rate(node, flow_rate);
+            }
+            
+        } else if (section == "PIPES") {
+            // Format: id upstream_id downstream_id length diameter roughness(optional)
+            std::string id, upstream_id, downstream_id;
+            Real length, diameter;
+            Real roughness = 0.000045; // Default for steel
+            
+            iss >> id >> upstream_id >> downstream_id >> length >> diameter;
+            
+            auto upstream = get_node(upstream_id);
+            auto downstream = get_node(downstream_id);
+            
+            if (!upstream || !downstream) {
+                throw std::runtime_error("Invalid node reference in pipe: " + id);
+            }
+            
+            auto pipe = add_pipe(id, upstream, downstream, length, diameter);
+            
+            if (iss >> roughness) {
+                pipe->set_roughness(roughness);
+            }
+        }
+    }
+    
+    file.close();
 }
 
 void Network::save_to_json(const std::string& filename) const {
@@ -102,53 +164,58 @@ void Network::save_to_json(const std::string& filename) const {
         throw std::runtime_error("Cannot create file: " + filename);
     }
     
-    // Simple JSON output
-    file << "{\n";
-    file << "  \"nodes\": [\n";
+    // Write header
+    file << "# Pipeline Network Configuration\n";
+    file << "# Generated by HamzaPipeSim\n\n";
     
-    bool first_node = true;
+    // Write nodes section
+    file << "[NODES]\n";
+    file << "# Format: id type elevation pressure(optional) flow_rate(optional)\n";
+    
     for (const auto& [id, node] : nodes_) {
-        if (!first_node) file << ",\n";
-        file << "    {\n";
-        file << "      \"id\": \"" << id << "\",\n";
-        file << "      \"type\": " << static_cast<int>(node->type()) << ",\n";
-        file << "      \"pressure\": " << node->pressure() << ",\n";
-        file << "      \"temperature\": " << node->temperature() << ",\n";
-        file << "      \"elevation\": " << node->elevation() << "\n";
-        file << "    }";
-        first_node = false;
+        file << id << " " << static_cast<int>(node->type()) << " " 
+             << std::fixed << std::setprecision(3) << node->elevation();
+        
+        // Check if this node has pressure spec
+        auto p_it = pressure_specs_.find(id);
+        if (p_it != pressure_specs_.end()) {
+            file << " " << p_it->second;
+        }
+        
+        // Check if this node has flow spec
+        auto f_it = flow_specs_.find(id);
+        if (f_it != flow_specs_.end() && p_it == pressure_specs_.end()) {
+            file << " 0"; // Placeholder for pressure
+            file << " " << f_it->second;
+        }
+        
+        file << "\n";
     }
     
-    file << "\n  ],\n";
-    file << "  \"pipes\": [\n";
+    // Write pipes section
+    file << "\n[PIPES]\n";
+    file << "# Format: id upstream_id downstream_id length diameter roughness\n";
     
-    bool first_pipe = true;
     for (const auto& [id, pipe] : pipes_) {
-        if (!first_pipe) file << ",\n";
-        file << "    {\n";
-        file << "      \"id\": \"" << id << "\",\n";
-        file << "      \"upstream\": \"" << pipe->upstream()->id() << "\",\n";
-        file << "      \"downstream\": \"" << pipe->downstream()->id() << "\",\n";
-        file << "      \"length\": " << pipe->length() << ",\n";
-        file << "      \"diameter\": " << pipe->diameter() << ",\n";
-        file << "      \"roughness\": " << pipe->roughness() << "\n";
-        file << "    }";
-        first_pipe = false;
+        file << id << " " 
+             << pipe->upstream()->id() << " " 
+             << pipe->downstream()->id() << " "
+             << std::fixed << std::setprecision(3)
+             << pipe->length() << " " 
+             << pipe->diameter() << " " 
+             << std::scientific << std::setprecision(6)
+             << pipe->roughness() << "\n";
     }
-    
-    file << "\n  ]\n";
-    file << "}\n";
     
     file.close();
 }
 
 bool Network::is_valid() const {
-    // Check if we have at least one node and one pipe
-    if (nodes_.empty() || pipes_.empty()) {
-        return false;
-    }
+    // Check basic requirements
+    if (nodes_.empty()) return false;
+    if (pipes_.empty()) return false;
     
-    // Check if we have at least one pressure specification
+    // Check for at least one pressure boundary condition
     bool has_pressure_bc = false;
     for (const auto& [id, node] : nodes_) {
         if (node->has_pressure_bc()) {
@@ -161,7 +228,7 @@ bool Network::is_valid() const {
         return false;
     }
     
-    // Check connectivity
+    // Check connectivity (simplified - just ensure all pipes have valid nodes)
     for (const auto& [id, pipe] : pipes_) {
         if (!pipe->upstream() || !pipe->downstream()) {
             return false;
