@@ -5,15 +5,8 @@
 #include "pipeline_sim/pipe.h"
 #include <string>
 #include <map>
-#include <memory>
-#include <functional>
 
 namespace pipeline_sim {
-
-// Surface tension constant
-constexpr Real oil_water_tension = 0.03;  // N/m
-
-
 
 /// Flow pattern enumeration
 enum class FlowPattern {
@@ -25,7 +18,7 @@ enum class FlowPattern {
     SLUG = 5,
     CHURN = 6,
     MIST = 7,
-    STRATIFIED = 8  // Add this for compatibility
+    SINGLE_PHASE = 8
 };
 
 /// Base correlation interface
@@ -36,7 +29,7 @@ public:
         Real liquid_holdup;       // fraction
         FlowPattern flow_pattern;
         Real friction_factor;
-        Real mixture_density;     // kg/mÂ³
+        Real mixture_density;     // kg/m³
         Real mixture_velocity;    // m/s
         std::map<std::string, Real> additional_data;
     };
@@ -62,8 +55,52 @@ public:
     ) const { return true; }
 };
 
+/// Single phase flow correlation
+class SinglePhaseFlow : public FlowCorrelation {
+public:
+    Results calculate(
+        const FluidProperties& fluid,
+        const Pipe& pipe,
+        Real flow_rate,
+        Real inlet_pressure,
+        Real inlet_temperature
+    ) const override;
+    
+    std::string name() const override { return "Single Phase"; }
+    
+    bool is_applicable(
+        const FluidProperties& fluid,
+        const Pipe& pipe
+    ) const override {
+        return !fluid.is_multiphase();
+    }
+};
+
+/// Core-annular flow correlation for heavy oil-water flow
+class CoreAnnularFlow : public FlowCorrelation {
+public:
+    Results calculate(
+        const FluidProperties& fluid,
+        const Pipe& pipe,
+        Real flow_rate,
+        Real inlet_pressure,
+        Real inlet_temperature
+    ) const override;
+    
+    std::string name() const override { return "Core-Annular Flow"; }
+    
+    bool is_applicable(
+        const FluidProperties& fluid,
+        const Pipe& pipe
+    ) const override {
+        // For oil-water flow with high oil viscosity
+        return fluid.has_oil && fluid.has_water && !fluid.has_gas &&
+               fluid.oil_viscosity > 0.1;  // Pa.s
+    }
+};
+
 /// Beggs-Brill correlation for multiphase flow
-class BeggsBrillCorrelation : public FlowCorrelation {
+class BeggsBrill : public FlowCorrelation {
 public:
     Results calculate(
         const FluidProperties& fluid,
@@ -87,11 +124,12 @@ private:
         Real no_slip_holdup,
         Real froude_number,
         Real inclination,
-        FlowPattern pattern,
-        Real liquid_velocity,  // Add this parameter
-        const FluidProperties& fluid  // Add this parameter
+        FlowPattern pattern
     ) const;
 };
+
+/// Beggs-Brill correlation (alias for compatibility)
+using BeggsBrillCorrelation = BeggsBrill;
 
 /// Hagedorn-Brown correlation for vertical wells
 class HagedornBrownCorrelation : public FlowCorrelation {
@@ -183,36 +221,6 @@ private:
         Real gas_flow,
         Real pipe_diameter,
         Real inclination
-    ) const;
-    
-    // Add missing method declarations
-    Real calculate_stratified_pressure_gradient(
-        const FluidProperties& fluid,
-        const Pipe& pipe,
-        Real velocity,
-        Real holdup,
-        bool is_liquid
-    ) const;
-    
-    Real calculate_slug_pressure_gradient(
-        const FluidProperties& fluid,
-        const Pipe& pipe,
-        Real vsl,
-        Real vsg,
-        Real holdup
-    ) const;
-    
-    Real calculate_annular_pressure_gradient(
-        const FluidProperties& fluid,
-        const Pipe& pipe,
-        Real vsl,
-        Real vsg,
-        Real holdup
-    ) const;
-    
-    Real calculate_friction_factor(
-        Real reynolds,
-        Real relative_roughness
     ) const;
 };
 

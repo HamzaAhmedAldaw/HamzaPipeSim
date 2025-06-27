@@ -12,7 +12,7 @@ CentrifugalPump::CentrifugalPump(const std::string& id)
     // Default efficiency curve (quadratic)
     efficiency_func_ = [](Real q) {
         // Peak efficiency at 0.5 normalized flow
-        Real q_norm = q / 0.1;  // Normalize to ~0.1 mÂ³/s
+        Real q_norm = q / 0.1;  // Normalize to ~0.1 m³/s
         return 0.85 - 0.4 * std::pow(q_norm - 0.5, 2);
     };
 }
@@ -44,7 +44,7 @@ void CentrifugalPump::calculate(
 }
 
 Real CentrifugalPump::head(Real flow_rate) const {
-    // H = a - b*Q - c*QÂ²
+    // H = a - b*Q - c*Q²
     return a_ - b_ * flow_rate - c_ * flow_rate * flow_rate;
 }
 
@@ -94,7 +94,7 @@ Real Compressor::compression_work(
 ) const {
     // Polytropic compression work per unit mass
     Real n = k / (polytropic_efficiency_ * (k - 1) + 1);
-    Real R = 287.0;  // Gas constant for air, J/(kgÂ·K)
+    Real R = 287.0;  // Gas constant for air, J/(kg·K)
     
     return n / (n - 1) * R * T1 * 
            (std::pow(p2/p1, (n-1)/n) - 1);
@@ -112,7 +112,7 @@ void ControlValve::calculate(
     Real& outlet_pressure,
     Real& outlet_temperature
 ) {
-    // Valve equation: Q = Cv * sqrt(Î”P / SG)
+    // Valve equation: Q = Cv * sqrt(?P / SG)
     Real cv_eff = effective_cv();
     Real sg = 0.85;  // Specific gravity (TODO: from fluid)
     
@@ -144,6 +144,10 @@ Real ControlValve::effective_cv() const {
         case Characteristic::QUICK_OPENING:
             f = std::sqrt(opening_);
             break;
+            
+        default:
+            f = opening_;  // Default to linear
+            break;
     }
     
     return cv_ * f;
@@ -152,8 +156,8 @@ Real ControlValve::effective_cv() const {
 Real ControlValve::required_cv(
     Real flow_rate, Real pressure_drop, Real specific_gravity
 ) {
-    // Q (gpm) = Cv * sqrt(Î”P (psi) / SG)
-    Real q_gpm = flow_rate * 15850.3;  // mÂ³/s to gpm
+    // Q (gpm) = Cv * sqrt(?P (psi) / SG)
+    Real q_gpm = flow_rate * 15850.3;  // m³/s to gpm
     Real dp_psi = pressure_drop * 0.0145038;  // Pa to psi
     
     return q_gpm / std::sqrt(dp_psi / specific_gravity);
@@ -203,7 +207,7 @@ void Separator::calculate_separation(
 
 // Heat Exchanger Implementation
 HeatExchanger::HeatExchanger(const std::string& id, Type type)
-    : Equipment(id, NodeType::VALVE), type_(type) {  // Using VALVE type as placeholder
+    : Equipment(id, NodeType::HEAT_EXCHANGER), type_(type) {
 }
 
 void HeatExchanger::calculate(
@@ -217,7 +221,7 @@ void HeatExchanger::calculate(
     outlet_pressure = inlet_pressure * 0.95;  // 5% pressure drop
     
     // Heat transfer calculation
-    Real cp = 2000.0;  // J/(kgÂ·K) - specific heat
+    Real cp = 2000.0;  // J/(kg·K) - specific heat
     Real mass_flow = flow_rate * 850.0;  // kg/s (assuming oil density)
     
     // Effectiveness-NTU method

@@ -1,12 +1,11 @@
-﻿/// AI_GENERATED: Common type definitions
-/// Generated on: 2025-06-27
-#pragma once
+﻿#pragma once
 
 #include <Eigen/Core>
-#include <Eigen/Sparse>  // Add this for SparseMatrix
+#include <Eigen/Sparse>
 #include <complex>
 #include <vector>
 #include <memory>
+#include <string>
 
 namespace pipeline_sim {
 
@@ -29,8 +28,8 @@ using UniquePtr = std::unique_ptr<T>;
 // Common constants
 namespace constants {
     constexpr Real PI = 3.14159265358979323846;
-    constexpr Real GRAVITY = 9.80665;  // m/sÂ²
-    constexpr Real GAS_CONSTANT = 8.314;  // J/(molÂ·K)
+    constexpr Real GRAVITY = 9.80665;  // m/s²
+    constexpr Real GAS_CONSTANT = 8.314;  // J/(mol·K)
     constexpr Real STANDARD_PRESSURE = 101325.0;  // Pa
     constexpr Real STANDARD_TEMPERATURE = 288.15;  // K
     constexpr Real oil_water_tension = 0.03;  // N/m

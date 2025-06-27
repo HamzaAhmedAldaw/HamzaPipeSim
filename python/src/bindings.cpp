@@ -7,7 +7,7 @@
 namespace py = pybind11;
 using namespace pipeline_sim;
 
-PYBIND11_MODULE(_core, m) {
+PYBIND11_MODULE(pipeline_sim, m) {
     m.doc() = "Pipeline-Sim C++ core bindings";
     
     // Enums
@@ -18,17 +18,22 @@ PYBIND11_MODULE(_core, m) {
         .value("PUMP", NodeType::PUMP)
         .value("COMPRESSOR", NodeType::COMPRESSOR)
         .value("VALVE", NodeType::VALVE)
-        .value("SEPARATOR", NodeType::SEPARATOR);
+        .value("SEPARATOR", NodeType::SEPARATOR)
+        .value("HEAT_EXCHANGER", NodeType::HEAT_EXCHANGER);
     
     // Node class
     py::class_<Node, Ptr<Node>>(m, "Node")
-        .def(py::init<const std::string&, NodeType>())
+        .def(py::init<const std::string&, NodeType>(), 
+             py::arg("id"), py::arg("type") = NodeType::JUNCTION)
         .def_property_readonly("id", &Node::id)
         .def_property_readonly("type", &Node::type)
         .def_property("pressure", &Node::pressure, &Node::set_pressure)
         .def_property("temperature", &Node::temperature, &Node::set_temperature)
         .def_property("elevation", &Node::elevation, &Node::set_elevation)
-        .def("flow_balance", &Node::flow_balance)
+        .def("set_pressure_bc", &Node::set_pressure_bc)
+        .def("has_pressure_bc", &Node::has_pressure_bc)
+        .def("set_fixed_flow_rate", &Node::set_fixed_flow_rate)
+        .def("fixed_flow_rate", &Node::fixed_flow_rate)
         .def("__repr__", [](const Node& n) {
             return "<Node '" + n.id() + "' type=" + 
                    std::to_string(static_cast<int>(n.type())) + ">";
@@ -36,7 +41,9 @@ PYBIND11_MODULE(_core, m) {
     
     // Pipe class
     py::class_<Pipe, Ptr<Pipe>>(m, "Pipe")
-        .def(py::init<const std::string&, Ptr<Node>, Ptr<Node>, Real, Real>())
+        .def(py::init<const std::string&, Ptr<Node>, Ptr<Node>, Real, Real, Real>(),
+             py::arg("id"), py::arg("upstream"), py::arg("downstream"),
+             py::arg("length"), py::arg("diameter"), py::arg("roughness") = 0.000045)
         .def_property_readonly("id", &Pipe::id)
         .def_property_readonly("upstream", &Pipe::upstream)
         .def_property_readonly("downstream", &Pipe::downstream)
@@ -44,10 +51,12 @@ PYBIND11_MODULE(_core, m) {
         .def_property_readonly("diameter", &Pipe::diameter)
         .def_property("roughness", &Pipe::roughness, &Pipe::set_roughness)
         .def_property("inclination", &Pipe::inclination, &Pipe::set_inclination)
+        .def_property("flow_rate", &Pipe::flow_rate, &Pipe::set_flow_rate)
+        .def_property("velocity", &Pipe::velocity, &Pipe::set_velocity)
         .def("area", &Pipe::area)
         .def("volume", &Pipe::volume)
-        .def("velocity", &Pipe::velocity)
         .def("reynolds_number", &Pipe::reynolds_number)
+        .def("friction_factor", &Pipe::friction_factor)
         .def("__repr__", [](const Pipe& p) {
             return "<Pipe '" + p.id() + "' L=" + 
                    std::to_string(p.length()) + "m D=" +
@@ -68,22 +77,47 @@ PYBIND11_MODULE(_core, m) {
         .def_readwrite("water_fraction", &FluidProperties::water_fraction)
         .def_readwrite("gas_oil_ratio", &FluidProperties::gas_oil_ratio)
         .def_readwrite("water_cut", &FluidProperties::water_cut)
-        .def_readwrite("api_gravity", &FluidProperties::api_gravity)
+        .def_readwrite("temperature", &FluidProperties::temperature)
+        .def_readwrite("pressure", &FluidProperties::pressure)
+        .def_readwrite("has_oil", &FluidProperties::has_oil)
+        .def_readwrite("has_gas", &FluidProperties::has_gas)
+        .def_readwrite("has_water", &FluidProperties::has_water)
         .def("mixture_density", &FluidProperties::mixture_density)
-        .def("mixture_viscosity", &FluidProperties::mixture_viscosity);
+        .def("mixture_viscosity", &FluidProperties::mixture_viscosity)
+        .def("liquid_fraction", &FluidProperties::liquid_fraction)
+        .def("is_multiphase", &FluidProperties::is_multiphase);
     
     // Network
     py::class_<Network, Ptr<Network>>(m, "Network")
         .def(py::init<>())
-        .def("add_node", &Network::add_node)
-        .def("add_pipe", &Network::add_pipe)
+        .def("add_node", static_cast<Ptr<Node> (Network::*)(const std::string&, NodeType)>(&Network::add_node))
+        .def("add_pipe", static_cast<Ptr<Pipe> (Network::*)(const std::string&, Ptr<Node>, Ptr<Node>, Real, Real)>(&Network::add_pipe))
         .def("get_node", &Network::get_node)
         .def("get_pipe", &Network::get_pipe)
+        .def("get_upstream_pipes", &Network::get_upstream_pipes)
+        .def("get_downstream_pipes", &Network::get_downstream_pipes)
         .def("set_pressure", &Network::set_pressure)
         .def("set_flow_rate", &Network::set_flow_rate)
         .def("load_from_json", &Network::load_from_json)
+        .def("save_to_json", &Network::save_to_json)
+        .def("is_valid", &Network::is_valid)
+        .def("clear", &Network::clear)
+        .def("node_count", &Network::node_count)
+        .def("pipe_count", &Network::pipe_count)
+        .def("node_index", &Network::node_index)
+        .def("pipe_index", &Network::pipe_index)
         .def_property_readonly("nodes", &Network::nodes)
-        .def_property_readonly("pipes", &Network::pipes);
+        .def_property_readonly("pipes", &Network::pipes)
+        .def_property_readonly("pressure_specs", &Network::pressure_specs)
+        .def_property_readonly("flow_specs", &Network::flow_specs);
+    
+    // SolverConfig
+    py::class_<SolverConfig>(m, "SolverConfig")
+        .def(py::init<>())
+        .def_readwrite("tolerance", &SolverConfig::tolerance)
+        .def_readwrite("max_iterations", &SolverConfig::max_iterations)
+        .def_readwrite("relaxation_factor", &SolverConfig::relaxation_factor)
+        .def_readwrite("verbose", &SolverConfig::verbose);
     
     // SolutionResults
     py::class_<SolutionResults>(m, "SolutionResults")
@@ -99,12 +133,40 @@ PYBIND11_MODULE(_core, m) {
         .def("outlet_pressure", &SolutionResults::outlet_pressure);
     
     // Solvers
-    py::class_<Solver, Ptr<Solver>>(m, "Solver");
+    py::class_<Solver, Ptr<Solver>>(m, "Solver")
+        .def_property("config", 
+            py::overload_cast<>(&Solver::config),
+            [](Solver& self, const SolverConfig& config) { self.config() = config; });
     
     py::class_<SteadyStateSolver, Solver, Ptr<SteadyStateSolver>>(m, "SteadyStateSolver")
         .def(py::init<Ptr<Network>, const FluidProperties&>())
         .def("solve", &SteadyStateSolver::solve);
     
+    // TransientSolver and related classes
+    py::enum_<TimeScheme>(m, "TimeScheme")
+        .value("EXPLICIT_EULER", TimeScheme::EXPLICIT_EULER)
+        .value("IMPLICIT_EULER", TimeScheme::IMPLICIT_EULER)
+        .value("CRANK_NICOLSON", TimeScheme::CRANK_NICOLSON)
+        .value("RUNGE_KUTTA_4", TimeScheme::RUNGE_KUTTA_4);
+    
+    // TimeHistory structure
+    py::class_<TransientSolver::TimeHistory>(m, "TimeHistory")
+        .def_readonly("times", &TransientSolver::TimeHistory::times)
+        .def_readonly("node_pressures", &TransientSolver::TimeHistory::node_pressures)
+        .def_readonly("pipe_flows", &TransientSolver::TimeHistory::pipe_flows);
+    
+    py::class_<TransientSolver, Solver, Ptr<TransientSolver>>(m, "TransientSolver")
+        .def(py::init<Ptr<Network>, const FluidProperties&>())
+        .def("set_time_step", &TransientSolver::set_time_step)
+        .def("set_simulation_time", &TransientSolver::set_simulation_time)
+        .def("set_time_scheme", &TransientSolver::set_time_scheme)
+        .def("set_wave_speed_method", &TransientSolver::set_wave_speed_method)
+        .def("set_output_interval", &TransientSolver::set_output_interval)
+        .def("set_output_file", &TransientSolver::set_output_file)
+        .def("solve", &TransientSolver::solve)
+        .def("get_time_history", &TransientSolver::get_time_history);
+    
     // Module functions
     m.def("get_version", &get_version);
+    m.def("initialize", &initialize);
 }

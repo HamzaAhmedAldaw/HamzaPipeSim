@@ -1,112 +1,191 @@
-
-// ===== fluid_properties.cpp =====
 #include "pipeline_sim/fluid_properties.h"
 #include <cmath>
+#include <algorithm>
 
 namespace pipeline_sim {
 
-Real FluidProperties::mixture_density() const {
-    // Volume-weighted average density
-    Real total_volume_fraction = oil_fraction + gas_fraction + water_fraction;
-    if (total_volume_fraction <= 0) return oil_density;
-    
-    Real density = (oil_fraction * oil_density + 
-                   gas_fraction * gas_density * 1.225 +  // Convert relative to absolute
-                   water_fraction * water_density) / total_volume_fraction;
-    
-    return density;
-}
-
-Real FluidProperties::mixture_viscosity() const {
-    // Use Dukler correlation for mixture viscosity
-    Real liquid_fraction = oil_fraction + water_fraction;
-    Real total_fraction = liquid_fraction + gas_fraction;
-    
-    if (total_fraction <= 0) return oil_viscosity;
-    
-    // Liquid phase viscosity (volume-weighted)
-    Real liquid_viscosity = oil_viscosity;
-    if (liquid_fraction > 0) {
-        liquid_viscosity = (oil_fraction * oil_viscosity + 
-                          water_fraction * water_viscosity) / liquid_fraction;
+// FluidProperties methods
+void FluidProperties::update_pvt(Real pressure) {
+    // Simple PVT update
+    if (pressure < bubble_point_pressure && has_gas) {
+        // Below bubble point, gas comes out of solution
+        Real pressure_ratio = pressure / bubble_point_pressure;
+        gas_oil_ratio = gas_oil_ratio * pressure_ratio;
     }
     
-    // No-slip mixture viscosity
-    Real no_slip_viscosity = (liquid_fraction * liquid_viscosity + 
-                            gas_fraction * gas_viscosity) / total_fraction;
+    // Update formation volume factors
+    oil_formation_volume_factor = BlackOilModel::oil_fvf(
+        pressure, bubble_point_pressure, gas_oil_ratio, temperature
+    );
     
-    // Apply slip correction (simplified)
-    Real slip_factor = 1.0 + 0.3 * gas_fraction;
+    if (has_gas) {
+        Real z = gas_z_factor(pressure, temperature);
+        gas_formation_volume_factor = BlackOilModel::gas_fvf(pressure, temperature, z);
+    }
     
-    return no_slip_viscosity * slip_factor;
+    if (has_water) {
+        water_formation_volume_factor = WaterProperties::water_fvf(pressure, temperature);
+    }
 }
 
-Real FluidProperties::liquid_holdup(Real flow_pattern) const {
-    // Simplified liquid holdup calculation
-    // flow_pattern: 0=segregated, 1=intermittent, 2=distributed, 3=annular
+Real FluidProperties::gas_z_factor(Real pressure, Real temperature) const {
+    // Simplified Z-factor calculation
+    Real pc, tc;
+    GasProperties::pseudo_critical_properties(gas_density / 1.2, pc, tc);
     
-    Real liquid_fraction = oil_fraction + water_fraction;
-    Real total_fraction = liquid_fraction + gas_fraction;
+    Real pr = pressure / pc;
+    Real tr = temperature / tc;
     
-    if (gas_fraction <= 0 || total_fraction <= 0) return 1.0;
-    
-    Real no_slip_holdup = liquid_fraction / total_fraction;
-    
-    // Apply flow pattern correction
-    Real correction = 1.0;
-    if (flow_pattern < 1.0) {
-        // Segregated flow - significant slip
-        correction = 0.8;
-    } else if (flow_pattern < 2.0) {
-        // Intermittent flow - moderate slip
-        correction = 0.9;
+    return GasProperties::z_factor_dpr(pr, tr);
+}
+
+Real FluidProperties::oil_viscosity_at_pressure(Real pressure) const {
+    return BlackOilModel::oil_viscosity(
+        pressure, bubble_point_pressure, oil_viscosity, gas_oil_ratio
+    );
+}
+
+// BlackOilModel implementation
+Real BlackOilModel::oil_fvf(Real pressure, Real bubble_pressure, 
+                            Real gas_oil_ratio, Real temperature) {
+    // Simplified Standing correlation
+    if (pressure >= bubble_pressure) {
+        // Undersaturated oil
+        Real co = 1e-5;  // Oil compressibility, 1/Pa
+        return 1.0 + co * (pressure - bubble_pressure);
     } else {
-        // Distributed/annular - minimal slip
-        correction = 0.95;
+        // Saturated oil
+        Real bob = 1.0 + 0.0001 * gas_oil_ratio;  // Simplified
+        return bob * (pressure / bubble_pressure);
+    }
+}
+
+Real BlackOilModel::gas_fvf(Real pressure, Real temperature, Real z_factor) {
+    // Bg = ZT/P * Psc/Tsc
+    Real psc = 101325.0;  // Standard pressure, Pa
+    Real tsc = 288.15;    // Standard temperature, K
+    
+    return z_factor * temperature * psc / (pressure * tsc);
+}
+
+Real BlackOilModel::solution_gor(Real pressure, Real temperature) {
+    // Simplified Standing correlation
+    if (pressure < 101325.0) return 0.0;
+    
+    Real api = 30.0;  // Assumed API gravity
+    Real yg = 0.65;   // Gas specific gravity
+    
+    Real x = 0.0125 * api - 0.00091 * (temperature - 273.15);
+    Real rs = yg * std::pow(pressure / 1.8e5 * std::pow(10, x), 1.2048);
+    
+    return rs;
+}
+
+Real BlackOilModel::oil_viscosity(Real pressure, Real bubble_pressure,
+                                 Real dead_oil_viscosity, Real gas_oil_ratio) {
+    // Simplified Beggs-Robinson correlation
+    if (pressure >= bubble_pressure) {
+        // Undersaturated oil viscosity
+        Real m = 2.6 * std::pow(pressure / 1e6, 1.187) * 
+                std::exp(-11.513 - 8.98e-5 * pressure);
+        return dead_oil_viscosity * std::pow(pressure / bubble_pressure, m);
+    } else {
+        // Saturated oil viscosity
+        Real a = 10.715 * std::pow(gas_oil_ratio + 100, -0.515);
+        Real b = 5.44 * std::pow(gas_oil_ratio + 150, -0.338);
+        return a * std::pow(dead_oil_viscosity, b);
+    }
+}
+
+// GasProperties implementation
+void GasProperties::pseudo_critical_properties(Real specific_gravity,
+                                             Real& pseudo_critical_pressure,
+                                             Real& pseudo_critical_temperature) {
+    // Standing's correlation
+    if (specific_gravity < 0.75) {
+        pseudo_critical_temperature = 168 + 325 * specific_gravity - 
+                                     12.5 * specific_gravity * specific_gravity;
+        pseudo_critical_pressure = 677 + 15.0 * specific_gravity - 
+                                  37.5 * specific_gravity * specific_gravity;
+    } else {
+        pseudo_critical_temperature = 187 + 330 * specific_gravity - 
+                                     71.5 * specific_gravity * specific_gravity;
+        pseudo_critical_pressure = 706 - 51.7 * specific_gravity - 
+                                  11.1 * specific_gravity * specific_gravity;
     }
     
-    return no_slip_holdup * correction;
+    // Convert to SI units
+    pseudo_critical_temperature = (pseudo_critical_temperature + 459.67) * 5.0/9.0;  // R to K
+    pseudo_critical_pressure = pseudo_critical_pressure * 6894.76;  // psia to Pa
 }
 
-FluidProperties FluidProperties::from_json(const nlohmann::json& j) {
-    FluidProperties props;
+Real GasProperties::z_factor_dpr(Real pseudo_reduced_pressure,
+                               Real pseudo_reduced_temperature) {
+    // Dranchuk-Purvis-Robinson correlation (simplified)
+    Real a1 = 0.3265, a2 = -1.0700, a3 = -0.5339;
+    Real a4 = 0.01569, a5 = -0.05165, a6 = 0.5475;
+    Real a7 = -0.7361, a8 = 0.1844, a9 = 0.1056;
+    Real a10 = 0.6134, a11 = 0.7210;
     
-    if (j.contains("oil_density")) props.oil_density = j["oil_density"];
-    if (j.contains("gas_density")) props.gas_density = j["gas_density"];
-    if (j.contains("water_density")) props.water_density = j["water_density"];
+    Real tr = pseudo_reduced_temperature;
+    Real pr = pseudo_reduced_pressure;
     
-    if (j.contains("oil_viscosity")) props.oil_viscosity = j["oil_viscosity"];
-    if (j.contains("gas_viscosity")) props.gas_viscosity = j["gas_viscosity"];
-    if (j.contains("water_viscosity")) props.water_viscosity = j["water_viscosity"];
+    // Initial guess
+    Real z = 1.0;
     
-    if (j.contains("gas_oil_ratio")) props.gas_oil_ratio = j["gas_oil_ratio"];
-    if (j.contains("water_cut")) props.water_cut = j["water_cut"];
-    if (j.contains("api_gravity")) props.api_gravity = j["api_gravity"];
+    // Newton-Raphson iteration (simplified - just one iteration)
+    Real rho_r = 0.27 * pr / (z * tr);
+    Real z_new = 1 + (a1 + a2/tr + a3/(tr*tr*tr)) * rho_r +
+                (a4 + a5/tr) * rho_r * rho_r +
+                a5 * a6 * rho_r * rho_r * rho_r * rho_r * rho_r / tr;
     
-    // Calculate phase fractions from GOR and water cut
-    Real total_liquid = 1.0 - props.water_cut;
-    props.oil_fraction = total_liquid;
-    props.water_fraction = props.water_cut;
-    props.gas_fraction = props.gas_oil_ratio / 1000.0;  // Simplified conversion
-    
-    return props;
+    return z_new;
 }
 
-nlohmann::json FluidProperties::to_json() const {
-    return nlohmann::json{
-        {"oil_density", oil_density},
-        {"gas_density", gas_density},
-        {"water_density", water_density},
-        {"oil_viscosity", oil_viscosity},
-        {"gas_viscosity", gas_viscosity},
-        {"water_viscosity", water_viscosity},
-        {"oil_fraction", oil_fraction},
-        {"gas_fraction", gas_fraction},
-        {"water_fraction", water_fraction},
-        {"gas_oil_ratio", gas_oil_ratio},
-        {"water_cut", water_cut},
-        {"api_gravity", api_gravity}
-    };
+Real GasProperties::viscosity_lge(Real temperature, Real density,
+                                 Real molecular_weight) {
+    // Lee-Gonzalez-Eakin correlation
+    Real k = (9.4 + 0.02 * molecular_weight) * std::pow(temperature, 1.5) /
+            (209 + 19 * molecular_weight + temperature);
+    Real x = 3.5 + 986.0/temperature + 0.01 * molecular_weight;
+    Real y = 2.4 - 0.2 * x;
+    
+    return k * std::exp(x * std::pow(density/1000.0, y)) * 1e-7;  // Convert to Pa.s
+}
+
+// WaterProperties implementation
+Real WaterProperties::water_fvf(Real pressure, Real temperature) {
+    // Simplified correlation
+    Real bw = 1.0 + 1e-5 * (temperature - 288.15) - 1e-6 * (pressure - 101325);
+    return std::max(0.98, std::min(1.02, bw));
+}
+
+Real WaterProperties::water_viscosity(Real temperature, Real salinity) {
+    // Simplified correlation for water viscosity
+    Real t_c = temperature - 273.15;  // Convert to Celsius
+    Real mu_w = 1.002e-3 * std::exp(-0.02 * (t_c - 20));  // Fresh water
+    
+    // Salinity correction
+    Real salinity_factor = 1.0 + 0.001 * salinity;
+    
+    return mu_w * salinity_factor;
+}
+
+Real WaterProperties::water_density(Real pressure, Real temperature, Real salinity) {
+    // Simplified correlation
+    Real rho_w = 1000.0;  // kg/m³ at standard conditions
+    
+    // Temperature correction
+    Real t_c = temperature - 273.15;
+    rho_w *= (1.0 - 0.0002 * (t_c - 4.0));
+    
+    // Pressure correction (water is nearly incompressible)
+    rho_w *= (1.0 + 4.5e-10 * (pressure - 101325));
+    
+    // Salinity correction
+    rho_w *= (1.0 + 0.0007 * salinity);
+    
+    return rho_w;
 }
 
 } // namespace pipeline_sim

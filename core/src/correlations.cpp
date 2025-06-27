@@ -1,12 +1,25 @@
-// ===== src/correlations.cpp =====
 #include "pipeline_sim/correlations.h"
 #include <cmath>
 #include <algorithm>
+#include <stdexcept>
 
 namespace pipeline_sim {
 
-// Beggs-Brill Implementation
-FlowCorrelation::Results BeggsBrillCorrelation::calculate(
+// Helper function for friction factor calculation
+static Real calculate_friction_factor(Real reynolds, Real roughness, Real diameter) {
+    if (reynolds < 2300.0) {
+        // Laminar flow
+        return 64.0 / reynolds;
+    } else {
+        // Turbulent flow - Colebrook-White equation
+        // Using Swamee-Jain explicit approximation
+        Real A = -2.0 * std::log10(roughness / (3.7 * diameter) + 5.74 / std::pow(reynolds, 0.9));
+        return 0.25 / (A * A);
+    }
+}
+
+// SinglePhaseFlow implementation
+FlowCorrelation::Results SinglePhaseFlow::calculate(
     const FluidProperties& fluid,
     const Pipe& pipe,
     Real flow_rate,
@@ -15,167 +28,283 @@ FlowCorrelation::Results BeggsBrillCorrelation::calculate(
 ) const {
     Results results;
     
-    // Calculate phase velocities
+    // Calculate flow properties
     Real area = pipe.area();
-    Real liquid_frac = fluid.oil_fraction + fluid.water_fraction;
-    Real vsl = flow_rate * liquid_frac / area;
+    Real velocity = flow_rate / area;
+    Real density = fluid.mixture_density();
+    Real viscosity = fluid.mixture_viscosity();
+    
+    // Reynolds number
+    Real reynolds = density * std::abs(velocity) * pipe.diameter() / viscosity;
+    
+    // Friction factor
+    Real f = calculate_friction_factor(reynolds, pipe.roughness(), pipe.diameter());
+    
+    // Pressure gradient components
+    Real dp_friction = f * (density * velocity * std::abs(velocity)) / (2.0 * pipe.diameter());
+    Real dp_elevation = density * constants::GRAVITY * std::sin(pipe.inclination());
+    
+    // Fill results
+    results.pressure_gradient = dp_friction + dp_elevation;
+    results.liquid_holdup = 1.0;  // Single phase
+    results.flow_pattern = FlowPattern::SINGLE_PHASE;
+    results.friction_factor = f;
+    results.mixture_density = density;
+    results.mixture_velocity = velocity;
+    
+    return results;
+}
+
+// CoreAnnularFlow implementation
+FlowCorrelation::Results CoreAnnularFlow::calculate(
+    const FluidProperties& fluid,
+    const Pipe& pipe,
+    Real flow_rate,
+    Real inlet_pressure,
+    Real inlet_temperature
+) const {
+    Results results;
+    
+    // Core-annular flow assumes oil core with water annulus
+    Real area = pipe.area();
+    Real oil_fraction = fluid.oil_fraction;
+    Real water_fraction = fluid.water_fraction;
+    
+    // Estimate core and annulus radii
+    Real r_pipe = pipe.diameter() / 2.0;
+    Real r_core = r_pipe * std::sqrt(oil_fraction);
+    Real delta = r_pipe - r_core;  // Annulus thickness
+    
+    // Velocities
+    Real v_oil = flow_rate * oil_fraction / (constants::PI * r_core * r_core);
+    Real v_water = flow_rate * water_fraction / (constants::PI * (r_pipe * r_pipe - r_core * r_core));
+    
+    // Use water properties for wall friction
+    Real reynolds = fluid.water_density * v_water * 2 * delta / fluid.water_viscosity;
+    Real f = calculate_friction_factor(reynolds, pipe.roughness(), 2 * delta);
+    
+    // Pressure gradient (simplified)
+    Real mixture_density = fluid.mixture_density();
+    Real dp_friction = f * fluid.water_density * v_water * v_water / (4.0 * delta);
+    Real dp_elevation = mixture_density * constants::GRAVITY * std::sin(pipe.inclination());
+    
+    // Fill results
+    results.pressure_gradient = dp_friction + dp_elevation;
+    results.liquid_holdup = 1.0;  // Liquid flow
+    results.flow_pattern = FlowPattern::ANNULAR;
+    results.friction_factor = f;
+    results.mixture_density = mixture_density;
+    results.mixture_velocity = flow_rate / area;
+    
+    return results;
+}
+
+// BeggsBrill implementation
+FlowCorrelation::Results BeggsBrill::calculate(
+    const FluidProperties& fluid,
+    const Pipe& pipe,
+    Real flow_rate,
+    Real inlet_pressure,
+    Real inlet_temperature
+) const {
+    Results results;
+    
+    // Calculate superficial velocities
+    Real area = pipe.area();
+    Real vsl = flow_rate * fluid.liquid_fraction() / area;
     Real vsg = flow_rate * fluid.gas_fraction / area;
     Real vm = vsl + vsg;
     
     // No-slip holdup
-    Real lambda = vsl / vm;
+    Real lambda_l = vsl / vm;
     
     // Froude number
     Real froude = vm * vm / (constants::GRAVITY * pipe.diameter());
     
     // Determine flow pattern
-    results.flow_pattern = determine_flow_pattern(vsl, vsg, 
-                                                 pipe.diameter(), 
-                                                 pipe.inclination());
+    FlowPattern pattern = determine_flow_pattern(vsl, vsg, pipe.diameter(), pipe.inclination());
     
-    // Calculate liquid holdup - pass vsl and fluid
-    results.liquid_holdup = calculate_liquid_holdup(lambda, froude,
-                                                    pipe.inclination(),
-                                                    results.flow_pattern,
-                                                    vsl, fluid);
+    // Calculate liquid holdup
+    Real holdup = calculate_liquid_holdup(lambda_l, froude, pipe.inclination(), pattern);
     
     // Mixture properties
-    Real rho_l = fluid.oil_density * fluid.oil_fraction / liquid_frac +
-                 fluid.water_density * fluid.water_fraction / liquid_frac;
-    Real rho_g = fluid.gas_density * 1.225;
+    Real rho_l = fluid.oil_density * (fluid.oil_fraction / fluid.liquid_fraction()) +
+                 fluid.water_density * (fluid.water_fraction / fluid.liquid_fraction());
+    Real rho_g = fluid.gas_density;
+    Real rho_m = rho_l * holdup + rho_g * (1 - holdup);
     
-    results.mixture_density = rho_l * results.liquid_holdup + 
-                             rho_g * (1.0 - results.liquid_holdup);
-    results.mixture_velocity = vm;
+    // Two-phase Reynolds number
+    Real mu_l = fluid.oil_viscosity * (fluid.oil_fraction / fluid.liquid_fraction()) +
+                fluid.water_viscosity * (fluid.water_fraction / fluid.liquid_fraction());
+    Real reynolds = rho_m * vm * pipe.diameter() / mu_l;
     
-    // Friction factor calculation
-    Real mu_l = fluid.oil_viscosity * fluid.oil_fraction / liquid_frac +
-                fluid.water_viscosity * fluid.water_fraction / liquid_frac;
-    Real mu_n = mu_l * lambda + fluid.gas_viscosity * (1.0 - lambda);
-    
-    Real Re = results.mixture_density * vm * pipe.diameter() / mu_n;
-    
-    // Two-phase friction factor multiplier
-    Real fn = 16.0 / Re;  // Laminar single-phase
-    if (Re > 2300) {
-        // Turbulent - use Colebrook-White
-        Real eps = pipe.roughness() / pipe.diameter();
-        Real a = -2.0 * std::log10(eps/3.7 + 2.51/(Re*std::sqrt(fn)));
-        fn = 1.0 / (a * a);
-    }
-    
-    // Two-phase multiplier
-    Real y = lambda / (results.liquid_holdup * results.liquid_holdup);
-    Real S = std::log(y) / (-0.0523 + 3.182*std::log(y) - 
-                            0.8725*std::pow(std::log(y), 2) +
-                            0.01853*std::pow(std::log(y), 4));
-    
-    results.friction_factor = fn * std::exp(S);
+    // Friction factor
+    Real f = calculate_friction_factor(reynolds, pipe.roughness(), pipe.diameter());
     
     // Pressure gradient
-    Real dp_friction = 2.0 * results.friction_factor * 
-                      results.mixture_density * vm * vm / pipe.diameter();
+    Real dp_friction = f * rho_m * vm * vm / (2.0 * pipe.diameter());
+    Real dp_elevation = rho_m * constants::GRAVITY * std::sin(pipe.inclination());
     
-    Real dp_gravity = results.mixture_density * constants::GRAVITY * 
-                     std::sin(pipe.inclination());
-    
-    results.pressure_gradient = dp_friction + dp_gravity;
-    
-    // Additional data
-    results.additional_data["froude_number"] = froude;
-    results.additional_data["reynolds_number"] = Re;
-    results.additional_data["no_slip_holdup"] = lambda;
+    // Fill results
+    results.pressure_gradient = dp_friction + dp_elevation;
+    results.liquid_holdup = holdup;
+    results.flow_pattern = pattern;
+    results.friction_factor = f;
+    results.mixture_density = rho_m;
+    results.mixture_velocity = vm;
     
     return results;
 }
 
-FlowPattern BeggsBrillCorrelation::determine_flow_pattern(
-    Real vsl, Real vsg, Real diameter, Real inclination
+FlowPattern BeggsBrill::determine_flow_pattern(
+    Real liquid_velocity,
+    Real gas_velocity,
+    Real pipe_diameter,
+    Real inclination
 ) const {
-    Real vm = vsl + vsg;
-    Real lambda = vsl / vm;
-    Real froude = vm * vm / (constants::GRAVITY * diameter);
+    // Simplified Beggs-Brill flow pattern map
+    Real vsl = liquid_velocity;
+    Real vsg = gas_velocity;
+    Real lambda_l = vsl / (vsl + vsg);
     
-    // Flow pattern boundaries
-    Real L1 = 316.0 * std::pow(lambda, 0.302);
-    Real L2 = 0.0009252 * std::pow(lambda, -2.4684);
-    Real L3 = 0.10 * std::pow(lambda, -1.4516);
-    Real L4 = 0.5 * std::pow(lambda, -6.738);
-    
-    // Horizontal or downward flow
-    if (inclination <= 0) {
-        if (lambda < 0.01 && froude < L1) {
-            return FlowPattern::SEGREGATED;
-        } else if (lambda >= 0.01 && lambda < 0.4) {
-            if (froude <= L1) {
-                return FlowPattern::DISTRIBUTED;
-            } else if (froude <= L2) {
-                return FlowPattern::INTERMITTENT;
-            }
-        } else if (lambda >= 0.4 && froude <= L4) {
-            return FlowPattern::INTERMITTENT;
-        }
+    // Flow pattern boundaries (simplified)
+    if (lambda_l < 0.01 && vsg > 3.0) {
+        return FlowPattern::ANNULAR;
+    } else if (lambda_l < 0.4 && vsg > 0.5) {
+        return FlowPattern::INTERMITTENT;
+    } else {
+        return FlowPattern::SEGREGATED;
     }
-    
-    // Default to annular for high gas rates
-    return FlowPattern::ANNULAR;
 }
 
-Real BeggsBrillCorrelation::calculate_liquid_holdup(
-    Real lambda, Real froude, Real angle, FlowPattern pattern,
-    Real vsl, const FluidProperties& fluid  // Added parameters
+Real BeggsBrill::calculate_liquid_holdup(
+    Real no_slip_holdup,
+    Real froude_number,
+    Real inclination,
+    FlowPattern pattern
 ) const {
-    // Horizontal liquid holdup correlations
-    Real Hl_0;
+    // Simplified Beggs-Brill holdup correlation
+    Real holdup = no_slip_holdup;
     
+    // Correction factor based on flow pattern
+    Real C = 0.0;
     switch (pattern) {
         case FlowPattern::SEGREGATED:
-            Hl_0 = 0.98 * std::pow(lambda, 0.4846) / 
-                   std::pow(froude, 0.0868);
+            C = 0.98;
             break;
-            
         case FlowPattern::INTERMITTENT:
-            Hl_0 = 0.845 * std::pow(lambda, 0.5351) / 
-                   std::pow(froude, 0.0173);
+            C = 0.845;
             break;
-            
         case FlowPattern::DISTRIBUTED:
-            Hl_0 = 1.065 * std::pow(lambda, 0.5824) / 
-                   std::pow(froude, 0.0609);
+        case FlowPattern::ANNULAR:
+            C = 1.065;
             break;
-            
-        default:  // ANNULAR
-            Hl_0 = lambda;
+        default:
+            C = 1.0;
     }
     
-    // Constrain to physical limits
-    Hl_0 = std::max(lambda, std::min(1.0, Hl_0));
-    
-    // Inclination correction
-    if (std::abs(angle) < 0.001) {
-        return Hl_0;
+    // Apply correction
+    if (froude_number > 0) {
+        holdup = C * no_slip_holdup / std::pow(froude_number, 0.1);
     }
     
-    // Calculate C parameter
-    Real NFr = froude;
-    Real NLv = vsl * std::pow(fluid.oil_density / 
-                             (constants::GRAVITY * constants::oil_water_tension), 0.25);
+    // Limit holdup
+    holdup = std::max(no_slip_holdup, std::min(1.0, holdup));
     
-    Real C = 0.0;
-    if (pattern == FlowPattern::SEGREGATED && angle > 0) {
-        C = (1.0 - lambda) * std::log(0.011 * std::pow(NFr, 3.539) * 
-                                      std::pow(lambda, -3.768));
-        C = std::max(0.0, C);
-    }
-    
-    // Inclination factor
-    Real psi = 1.0 + C * (std::sin(1.8 * angle) - 
-                         0.333 * std::pow(std::sin(1.8 * angle), 3));
-    
-    return Hl_0 * psi;
+    return holdup;
 }
 
-// Mechanistic Model Implementation
+// HagedornBrownCorrelation implementation
+FlowCorrelation::Results HagedornBrownCorrelation::calculate(
+    const FluidProperties& fluid,
+    const Pipe& pipe,
+    Real flow_rate,
+    Real inlet_pressure,
+    Real inlet_temperature
+) const {
+    Results results;
+    
+    // For vertical flow, use simplified correlation
+    Real area = pipe.area();
+    Real velocity = flow_rate / area;
+    Real density = fluid.mixture_density();
+    Real viscosity = fluid.mixture_viscosity();
+    
+    // Reynolds number
+    Real reynolds = density * velocity * pipe.diameter() / viscosity;
+    
+    // Friction factor
+    Real f = calculate_friction_factor(reynolds, pipe.roughness(), pipe.diameter());
+    
+    // Pressure gradient (vertical flow)
+    Real dp_friction = f * density * velocity * velocity / (2.0 * pipe.diameter());
+    Real dp_gravity = density * constants::GRAVITY * std::cos(pipe.inclination());
+    
+    // Fill results
+    results.pressure_gradient = dp_friction + dp_gravity;
+    results.liquid_holdup = 0.8;  // Simplified
+    results.flow_pattern = FlowPattern::SLUG;
+    results.friction_factor = f;
+    results.mixture_density = density;
+    results.mixture_velocity = velocity;
+    
+    return results;
+}
+
+Real HagedornBrownCorrelation::griffith_wallis_correlation(
+    Real liquid_velocity,
+    Real gas_velocity,
+    Real pipe_diameter
+) const {
+    // Simplified implementation
+    return 0.5;
+}
+
+Real HagedornBrownCorrelation::cnu_correlation_number(
+    Real liquid_viscosity,
+    Real liquid_density,
+    Real surface_tension,
+    Real pipe_diameter
+) const {
+    // CNu = (liquid_viscosity^4 * g) / (liquid_density * surface_tension^3)
+    return std::pow(liquid_viscosity, 4) * constants::GRAVITY / 
+           (liquid_density * std::pow(surface_tension, 3));
+}
+
+// GrayCorrelation implementation
+FlowCorrelation::Results GrayCorrelation::calculate(
+    const FluidProperties& fluid,
+    const Pipe& pipe,
+    Real flow_rate,
+    Real inlet_pressure,
+    Real inlet_temperature
+) const {
+    Results results;
+    
+    // Gray correlation for wet gas
+    Real area = pipe.area();
+    Real velocity = flow_rate / area;
+    
+    // Use gas properties primarily
+    Real reynolds = fluid.gas_density * velocity * pipe.diameter() / fluid.gas_viscosity;
+    Real f = calculate_friction_factor(reynolds, pipe.roughness(), pipe.diameter());
+    
+    // Pressure gradient
+    Real dp_friction = f * fluid.gas_density * velocity * velocity / (2.0 * pipe.diameter());
+    Real dp_elevation = fluid.mixture_density() * constants::GRAVITY * std::sin(pipe.inclination());
+    
+    // Fill results
+    results.pressure_gradient = dp_friction + dp_elevation;
+    results.liquid_holdup = 0.05;  // Low for wet gas
+    results.flow_pattern = FlowPattern::ANNULAR;
+    results.friction_factor = f;
+    results.mixture_density = fluid.mixture_density();
+    results.mixture_velocity = velocity;
+    
+    return results;
+}
+
+// MechanisticModel implementation
 FlowCorrelation::Results MechanisticModel::calculate(
     const FluidProperties& fluid,
     const Pipe& pipe,
@@ -185,79 +314,35 @@ FlowCorrelation::Results MechanisticModel::calculate(
 ) const {
     Results results;
     
-    // Calculate velocities
+    // Calculate superficial velocities
     Real area = pipe.area();
-    Real liquid_frac = fluid.oil_fraction + fluid.water_fraction;
-    Real vsl = flow_rate * liquid_frac / area;
+    Real vsl = flow_rate * fluid.liquid_fraction() / area;
     Real vsg = flow_rate * fluid.gas_fraction / area;
     
     // Determine flow regime
-    auto regime = determine_flow_regime(fluid, pipe, vsl, vsg);
-    results.flow_pattern = regime.pattern;
+    FlowRegime regime = determine_flow_regime(fluid, pipe, vsl, vsg);
+    
+    // Calculate based on flow pattern
+    Real density = fluid.mixture_density();
+    Real velocity = (vsl + vsg);
+    Real reynolds = density * velocity * pipe.diameter() / fluid.mixture_viscosity();
+    Real f = calculate_friction_factor(reynolds, pipe.roughness(), pipe.diameter());
+    
+    // Pressure gradient
+    Real dp_friction = f * density * velocity * velocity / (2.0 * pipe.diameter());
+    Real dp_elevation = density * constants::GRAVITY * std::sin(pipe.inclination());
+    
+    // Fill results
+    results.pressure_gradient = dp_friction + dp_elevation;
     results.liquid_holdup = regime.holdup;
-    
-    // Calculate mixture properties
-    Real rho_l = fluid.oil_density * fluid.oil_fraction / liquid_frac +
-                 fluid.water_density * fluid.water_fraction / liquid_frac;
-    Real rho_g = fluid.gas_density * 1.225;
-    
-    results.mixture_density = rho_l * results.liquid_holdup + 
-                             rho_g * (1.0 - results.liquid_holdup);
-    
-    // Calculate pressure gradient based on regime
-    Real dp_friction = 0.0;
-    Real dp_gravity = results.mixture_density * constants::GRAVITY * 
-                     std::sin(pipe.inclination());
-    
-    switch (regime.pattern) {
-        case FlowPattern::STRATIFIED:
-        case FlowPattern::SEGREGATED: {
-            // Stratified flow model
-            Real dpdz_l = calculate_stratified_pressure_gradient(
-                fluid, pipe, vsl, results.liquid_holdup, true
-            );
-            Real dpdz_g = calculate_stratified_pressure_gradient(
-                fluid, pipe, vsg, 1.0 - results.liquid_holdup, false
-            );
-            dp_friction = std::max(dpdz_l, dpdz_g);
-            break;
-        }
-        
-        case FlowPattern::SLUG:
-        case FlowPattern::INTERMITTENT: {
-            // Slug flow model
-            dp_friction = calculate_slug_pressure_gradient(
-                fluid, pipe, vsl, vsg, results.liquid_holdup
-            );
-            break;
-        }
-        
-        case FlowPattern::ANNULAR:
-        case FlowPattern::MIST: {
-            // Annular flow model
-            dp_friction = calculate_annular_pressure_gradient(
-                fluid, pipe, vsl, vsg, results.liquid_holdup
-            );
-            break;
-        }
-        
-        default: {
-            // Default homogeneous model
-            Real vm = vsl + vsg;
-            Real mu_m = fluid.mixture_viscosity();
-            Real Re = results.mixture_density * vm * pipe.diameter() / mu_m;
-            Real f = calculate_friction_factor(Re, pipe.roughness() / pipe.diameter());
-            dp_friction = 2.0 * f * results.mixture_density * vm * vm / pipe.diameter();
-        }
-    }
-    
-    results.pressure_gradient = dp_friction + dp_gravity;
-    results.mixture_velocity = (vsl + vsg);
+    results.flow_pattern = regime.pattern;
+    results.friction_factor = f;
+    results.mixture_density = density;
+    results.mixture_velocity = velocity;
     
     return results;
 }
 
-// Placeholder implementations for MechanisticModel methods
 MechanisticModel::FlowRegime MechanisticModel::determine_flow_regime(
     const FluidProperties& fluid,
     const Pipe& pipe,
@@ -265,149 +350,59 @@ MechanisticModel::FlowRegime MechanisticModel::determine_flow_regime(
     Real gas_velocity
 ) const {
     FlowRegime regime;
-    // Simplified flow regime determination
-    Real vm = liquid_velocity + gas_velocity;
-    Real lambda = liquid_velocity / vm;
     
-    if (lambda > 0.9) {
-        regime.pattern = FlowPattern::BUBBLE;
-        regime.holdup = 0.95;
-    } else if (lambda > 0.5) {
-        regime.pattern = FlowPattern::SLUG;
-        regime.holdup = 0.7;
-    } else if (lambda > 0.1) {
+    // Simplified flow regime determination
+    Real vsl = liquid_velocity;
+    Real vsg = gas_velocity;
+    Real vm = vsl + vsg;
+    
+    if (vsg / vm > 0.9) {
         regime.pattern = FlowPattern::ANNULAR;
-        regime.holdup = lambda * 1.2;
+        regime.holdup = 0.1;
+    } else if (vsl < 0.1 && vsg < 1.0) {
+        regime.pattern = FlowPattern::SEGREGATED;
+        regime.holdup = stratified_holdup(vsl, vsg, pipe.diameter(), pipe.inclination());
     } else {
-        regime.pattern = FlowPattern::MIST;
-        regime.holdup = lambda;
+        regime.pattern = FlowPattern::SLUG;
+        regime.holdup = 0.5;
     }
     
     regime.interfacial_friction = 0.01;
+    
     return regime;
 }
 
-Real MechanisticModel::calculate_stratified_pressure_gradient(
-    const FluidProperties& fluid,
-    const Pipe& pipe,
-    Real velocity,
-    Real holdup,
-    bool is_liquid
+Real MechanisticModel::stratified_holdup(
+    Real liquid_flow,
+    Real gas_flow,
+    Real pipe_diameter,
+    Real inclination
 ) const {
-    // Simplified stratified flow pressure gradient
-    Real density = is_liquid ? 
-        (fluid.oil_density * fluid.oil_fraction + fluid.water_density * fluid.water_fraction) :
-        (fluid.gas_density * 1.225);
+    // Simplified stratified holdup calculation
+    Real ql = liquid_flow;
+    Real qg = gas_flow;
+    Real qt = ql + qg;
     
-    Real viscosity = is_liquid ?
-        (fluid.oil_viscosity * fluid.oil_fraction + fluid.water_viscosity * fluid.water_fraction) :
-        fluid.gas_viscosity;
-    
-    Real Re = density * velocity * pipe.diameter() / viscosity;
-    Real f = calculate_friction_factor(Re, pipe.roughness() / pipe.diameter());
-    
-    return 2.0 * f * density * velocity * velocity / pipe.diameter();
+    return ql / qt;  // No-slip holdup as approximation
 }
 
-Real MechanisticModel::calculate_slug_pressure_gradient(
-    const FluidProperties& fluid,
-    const Pipe& pipe,
-    Real vsl,
-    Real vsg,
-    Real holdup
-) const {
-    // Simplified slug flow model
-    Real vm = vsl + vsg;
-    Real density_l = fluid.oil_density * fluid.oil_fraction + 
-                     fluid.water_density * fluid.water_fraction;
-    Real density_g = fluid.gas_density * 1.225;
-    Real mixture_density = density_l * holdup + density_g * (1.0 - holdup);
-    
-    Real Re = mixture_density * vm * pipe.diameter() / fluid.mixture_viscosity();
-    Real f = calculate_friction_factor(Re, pipe.roughness() / pipe.diameter());
-    
-    return 2.0 * f * mixture_density * vm * vm / pipe.diameter();
-}
-
-Real MechanisticModel::calculate_annular_pressure_gradient(
-    const FluidProperties& fluid,
-    const Pipe& pipe,
-    Real vsl,
-    Real vsg,
-    Real holdup
-) const {
-    // Simplified annular flow model
-    Real core_velocity = vsg / (1.0 - holdup);
-    Real density_g = fluid.gas_density * 1.225;
-    
-    Real Re = density_g * core_velocity * pipe.diameter() / fluid.gas_viscosity;
-    Real f = calculate_friction_factor(Re, pipe.roughness() / pipe.diameter());
-    
-    // Include interfacial friction enhancement
-    Real fi = f * (1.0 + 75.0 * holdup);
-    
-    return 2.0 * fi * density_g * core_velocity * core_velocity / pipe.diameter();
-}
-
-Real MechanisticModel::calculate_friction_factor(
-    Real reynolds,
-    Real relative_roughness
-) const {
-    if (reynolds < 2300) {
-        return 64.0 / reynolds;
-    } else {
-        // Colebrook-White equation (simplified)
-        Real f_guess = 0.02;
-        for (int i = 0; i < 5; ++i) {
-            Real a = -2.0 * std::log10(relative_roughness/3.7 + 
-                                      2.51/(reynolds*std::sqrt(f_guess)));
-            f_guess = 1.0 / (a * a);
-        }
-        return f_guess;
-    }
-}
-
-// Stub implementations for other correlations
-FlowCorrelation::Results HagedornBrownCorrelation::calculate(
-    const FluidProperties& fluid,
-    const Pipe& pipe,
-    Real flow_rate,
-    Real inlet_pressure,
-    Real inlet_temperature
-) const {
-    // Placeholder implementation
-    Results results;
-    results.pressure_gradient = 1000.0;  // Pa/m
-    results.liquid_holdup = 0.5;
-    results.flow_pattern = FlowPattern::BUBBLE;
-    results.friction_factor = 0.02;
-    results.mixture_density = 900.0;
-    results.mixture_velocity = 2.0;
-    return results;
-}
-
-FlowCorrelation::Results GrayCorrelation::calculate(
-    const FluidProperties& fluid,
-    const Pipe& pipe,
-    Real flow_rate,
-    Real inlet_pressure,
-    Real inlet_temperature
-) const {
-    // Placeholder implementation
-    Results results;
-    results.pressure_gradient = 500.0;  // Pa/m
-    results.liquid_holdup = 0.1;
-    results.flow_pattern = FlowPattern::MIST;
-    results.friction_factor = 0.015;
-    results.mixture_density = 100.0;
-    results.mixture_velocity = 10.0;
-    return results;
-}
-
-// Correlation Factory
+// CorrelationFactory implementation
 std::map<std::string, std::function<std::unique_ptr<FlowCorrelation>()>>& 
 CorrelationFactory::registry() {
     static std::map<std::string, std::function<std::unique_ptr<FlowCorrelation>()>> reg;
+    
+    // Register default correlations
+    static bool initialized = false;
+    if (!initialized) {
+        reg["single-phase"] = []() { return std::make_unique<SinglePhaseFlow>(); };
+        reg["beggs-brill"] = []() { return std::make_unique<BeggsBrill>(); };
+        reg["hagedorn-brown"] = []() { return std::make_unique<HagedornBrownCorrelation>(); };
+        reg["gray"] = []() { return std::make_unique<GrayCorrelation>(); };
+        reg["mechanistic"] = []() { return std::make_unique<MechanisticModel>(); };
+        reg["core-annular"] = []() { return std::make_unique<CoreAnnularFlow>(); };
+        initialized = true;
+    }
+    
     return reg;
 }
 
@@ -417,30 +412,15 @@ std::unique_ptr<FlowCorrelation> CorrelationFactory::create(const std::string& n
     if (it != reg.end()) {
         return it->second();
     }
-    
-    // Default correlations
-    if (name == "Beggs-Brill") {
-        return std::make_unique<BeggsBrillCorrelation>();
-    } else if (name == "Hagedorn-Brown") {
-        return std::make_unique<HagedornBrownCorrelation>();
-    } else if (name == "Gray") {
-        return std::make_unique<GrayCorrelation>();
-    } else if (name == "Mechanistic") {
-        return std::make_unique<MechanisticModel>();
-    }
-    
     throw std::runtime_error("Unknown correlation: " + name);
 }
 
 std::vector<std::string> CorrelationFactory::available_correlations() {
-    std::vector<std::string> names = {
-        "Beggs-Brill", "Hagedorn-Brown", "Gray", "Mechanistic"
-    };
-    
-    for (const auto& [name, creator] : registry()) {
+    auto& reg = registry();
+    std::vector<std::string> names;
+    for (const auto& [name, creator] : reg) {
         names.push_back(name);
     }
-    
     return names;
 }
 

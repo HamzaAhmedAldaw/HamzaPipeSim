@@ -1,4 +1,4 @@
-﻿/// AI_GENERATED: ML integration implementation
+/// AI_GENERATED: ML integration implementation
 /// Generated on: 2025-06-27
 
 // ===== src/ml_integration.cpp =====
@@ -117,7 +117,7 @@ Vector FeatureExtractor::extract_features(
     // Convert to Eigen vector
     Vector feature_vector(features.size());
     for (size_t i = 0; i < features.size(); ++i) {
-        feature_vector(i) = features[i];
+        feature_vector(static_cast<int>(i)) = features[i];
     }
     
     return feature_vector;
@@ -146,7 +146,7 @@ void FeatureExtractor::normalize_features(Vector& features) {
         features(i) /= pressure_scale;
     }
     
-    // Flow normalization (mÂ³/s)
+    // Flow normalization (m�/s)
     Real flow_scale = 1.0;
     for (int i = 20; i < 24; ++i) {
         features(i) /= flow_scale;
@@ -219,6 +219,7 @@ Vector FlowPatternPredictor::predict(const Vector& features) {
     
     return network_->forward(features);
 }
+
 FlowPattern FlowPatternPredictor::predict_pattern(
     const Pipe& pipe,
     const FluidProperties& fluid,
@@ -268,6 +269,7 @@ FlowPattern FlowPatternPredictor::predict_pattern(
     // Default fallback
     return FlowPattern::SLUG;
 }
+
 // Anomaly Detector Implementation
 Real AnomalyDetector::IsolationTree::path_length(const Vector& sample) const {
     Node* current = root.get();
@@ -301,10 +303,10 @@ void AnomalyDetector::load(const std::string& filename) {
     int num_trees;
     file.read(reinterpret_cast<char*>(&num_trees), sizeof(int));
     
-    forest_.resize(num_trees);
+    forest_.resize(static_cast<size_t>(num_trees));
     
     // Load each tree
-    for (int i = 0; i < num_trees; ++i) {
+    for (size_t i = 0; i < static_cast<size_t>(num_trees); ++i) {
         // Simplified: create random tree
         forest_[i].root = std::make_unique<IsolationTree::Node>();
         // In practice, would deserialize tree structure
@@ -319,7 +321,7 @@ Vector AnomalyDetector::predict(const Vector& features) {
     for (const auto& tree : forest_) {
         avg_path_length += tree.path_length(features);
     }
-    avg_path_length /= forest_.size();
+    avg_path_length /= static_cast<Real>(forest_.size());
     
     // Calculate anomaly score
     Real c_n = 2.0 * (std::log(features.size()) + 0.5772) - 2.0 * (features.size() - 1) / features.size();
@@ -352,9 +354,9 @@ AnomalyDetector::AnomalyResult AnomalyDetector::detect(
         auto feature_names = FeatureExtractor::get_feature_names();
         
         // Find features that deviate most from normal
-        for (size_t i = 0; i < features.size(); ++i) {
+        for (int i = 0; i < features.size(); ++i) {
             if (std::abs(features(i)) > 2.0) {  // More than 2 std devs
-                result.anomaly_features.push_back(feature_names[i]);
+                result.anomaly_features.push_back(feature_names[static_cast<size_t>(i)]);
             }
         }
     }
@@ -400,7 +402,7 @@ MLOptimizer::OptimizationResult MLOptimizer::optimize(
         result.objective_value = best.fitness;
         
         // Decode control variables
-        size_t idx = 0;
+        int idx = 0;
         for (const auto& [id, node] : network.nodes()) {
             if (node->type() == NodeType::PUMP && idx < best.genes.size()) {
                 result.pump_speeds[id] = best.genes(idx++);
@@ -491,7 +493,7 @@ void MLOptimizer::selection() {
     // Tournament selection
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> dis(0, population_.size() - 1);
+    std::uniform_int_distribution<> dis(0, static_cast<int>(population_.size()) - 1);
     
     std::vector<Individual> new_population;
     new_population.reserve(population_.size());
@@ -504,10 +506,10 @@ void MLOptimizer::selection() {
         int idx1 = dis(gen);
         int idx2 = dis(gen);
         
-        if (population_[idx1].fitness < population_[idx2].fitness) {
-            new_population.push_back(population_[idx1]);
+        if (population_[static_cast<size_t>(idx1)].fitness < population_[static_cast<size_t>(idx2)].fitness) {
+            new_population.push_back(population_[static_cast<size_t>(idx1)]);
         } else {
-            new_population.push_back(population_[idx2]);
+            new_population.push_back(population_[static_cast<size_t>(idx2)]);
         }
     }
     
@@ -524,7 +526,7 @@ void MLOptimizer::crossover() {
     for (size_t i = 1; i < population_.size() - 1; i += 2) {
         if (dis(gen) < crossover_rate) {
             // Single-point crossover
-            int point = std::uniform_int_distribution<>(0, population_[i].genes.size() - 1)(gen);
+            int point = std::uniform_int_distribution<>(0, static_cast<int>(population_[i].genes.size()) - 1)(gen);
             
             for (int j = point; j < population_[i].genes.size(); ++j) {
                 std::swap(population_[i].genes(j), population_[i + 1].genes(j));
@@ -572,18 +574,18 @@ void DataDrivenCorrelation::train(
 ) {
     // Random Forest training (simplified)
     const int num_trees = 100;
-    forest_.resize(num_trees);
+    forest_.resize(static_cast<size_t>(num_trees));
     
     std::random_device rd;
     std::mt19937 gen(rd());
     
-    for (int t = 0; t < num_trees; ++t) {
+    for (size_t t = 0; t < static_cast<size_t>(num_trees); ++t) {
         // Bootstrap sampling
         std::vector<size_t> indices(features.size());
-        std::uniform_int_distribution<> dis(0, features.size() - 1);
+        std::uniform_int_distribution<> dis(0, static_cast<int>(features.size()) - 1);
         
         for (size_t& idx : indices) {
-            idx = dis(gen);
+            idx = static_cast<size_t>(dis(gen));
         }
         
         // Train tree (simplified - would use recursive partitioning)
@@ -593,7 +595,7 @@ void DataDrivenCorrelation::train(
     }
     
     // Calculate feature importance
-    feature_importance_.resize(features[0].size());
+    feature_importance_.resize(static_cast<int>(features[0].size()));
     feature_importance_.setZero();
 }
 
@@ -631,7 +633,7 @@ FlowCorrelation::Results DataDrivenCorrelation::calculate(
     for (const auto& tree : forest_) {
         dp_predicted += tree.predict(features);
     }
-    dp_predicted /= forest_.size();
+    dp_predicted /= static_cast<Real>(forest_.size());
     
     // Fill results
     results.pressure_gradient = dp_predicted;
@@ -654,15 +656,15 @@ void DigitalTwin::initialize(
     
     // Initialize state vector
     size_t state_size = network_->nodes().size() + network_->pipes().size();
-    state_estimate_.resize(state_size);
+    state_estimate_.resize(static_cast<int>(state_size));
     state_estimate_.setZero();
     
     // Initialize covariance matrix
-    covariance_matrix_ = Matrix::Identity(state_size, state_size) * 1e4;
+    covariance_matrix_ = Matrix::Identity(static_cast<int>(state_size), static_cast<int>(state_size)) * 1e4;
     
     // Process and measurement noise
-    process_noise_ = Matrix::Identity(state_size, state_size) * 1e2;
-    measurement_noise_ = Matrix::Identity(state_size, state_size) * 1e1;
+    process_noise_ = Matrix::Identity(static_cast<int>(state_size), static_cast<int>(state_size)) * 1e2;
+    measurement_noise_ = Matrix::Identity(static_cast<int>(state_size), static_cast<int>(state_size)) * 1e1;
     
     // Load ML models
     anomaly_detector_ = std::make_unique<AnomalyDetector>();
@@ -678,7 +680,7 @@ void DigitalTwin::update_with_measurements(
     size_t num_nodes = network_->nodes().size();
     
     // Build measurement vector
-    Vector z(pressure_measurements.size() + flow_measurements.size());
+    Vector z(static_cast<int>(pressure_measurements.size() + flow_measurements.size()));
     int idx = 0;
     
     for (const auto& [node_id, pressure] : pressure_measurements) {
@@ -732,7 +734,7 @@ void DigitalTwin::update_with_measurements(
 DigitalTwin::EstimatedState DigitalTwin::estimate_state() {
     EstimatedState state;
     
-    size_t idx = 0;
+    int idx = 0;
     for (const auto& [node_id, node] : network_->nodes()) {
         state.node_pressures[node_id] = state_estimate_(idx);
         state.uncertainties[node_id] = std::sqrt(covariance_matrix_(idx, idx));
@@ -822,7 +824,7 @@ std::vector<DigitalTwin::Discrepancy> DigitalTwin::detect_discrepancies() {
         }
         
         Real imbalance = std::abs(inflow - outflow);
-        if (imbalance > 0.01) {  // 0.01 mÂ³/s threshold
+        if (imbalance > 0.01) {  // 0.01 m�/s threshold
             Discrepancy disc;
             disc.location = node_id;
             disc.type = "leak";
@@ -837,4 +839,3 @@ std::vector<DigitalTwin::Discrepancy> DigitalTwin::detect_discrepancies() {
 
 } // namespace ml
 } // namespace pipeline_sim
-
