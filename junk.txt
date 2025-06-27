@@ -1,0 +1,281 @@
+
+# ===== scripts/build_release.sh =====
+#!/bin/bash
+# AI_GENERATED: Build release packages
+# Generated on: 2025-06-27
+
+set -e
+
+echo "Building Pipeline-Sim Release Packages"
+echo "====================================="
+
+# Get version
+VERSION=$(grep "VERSION" core/include/pipeline_sim/pipeline_sim.h | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')
+echo "Version: $VERSION"
+
+# Create release directory
+RELEASE_DIR="release-$VERSION"
+mkdir -p $RELEASE_DIR
+
+# Build C++ core
+echo "Building C++ core..."
+mkdir -p build-release
+cd build-release
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF
+make -j$(nproc)
+cd ..
+
+# Build Python wheel
+echo "Building Python wheel..."
+cd python
+python setup.py bdist_wheel
+cp dist/*.whl ../$RELEASE_DIR/
+cd ..
+
+# Create source distribution
+echo "Creating source distribution..."
+git archive --format=tar.gz --prefix=pipeline-sim-$VERSION/ -o $RELEASE_DIR/pipeline-sim-$VERSION.tar.gz HEAD
+
+# Build documentation
+echo "Building documentation..."
+cd docs
+make html
+cd ..
+cp -r docs/_build/html $RELEASE_DIR/documentation
+
+# Create installers
+echo "Creating platform installers..."
+
+# Linux AppImage
+if command -v appimagetool &> /dev/null; then
+    echo "Building AppImage..."
+    # TODO: Create AppImage
+fi
+
+# Windows installer (if on Windows or using Wine)
+if command -v makensis &> /dev/null; then
+    echo "Building Windows installer..."
+    # TODO: Create NSIS installer
+fi
+
+# macOS DMG (if on macOS)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    echo "Building macOS DMG..."
+    # TODO: Create DMG
+fi
+
+# Create release notes
+cat > $RELEASE_DIR/RELEASE_NOTES.md << EOF
+# Pipeline-Sim v$VERSION Release Notes
+
+## New Features
+- Initial release of Pipeline-Sim
+- Steady-state and transient solvers
+- Multiple flow correlations
+- Equipment models
+- Python API and GUI
+- CLI tools
+
+## Installation
+
+### Python Package
+\`\`\`bash
+pip install pipeline_sim-$VERSION-py3-none-any.whl
+\`\`\`
+
+### From Source
+\`\`\`bash
+tar -xzf pipeline-sim-$VERSION.tar.gz
+cd pipeline-sim-$VERSION
+mkdir build && cd build
+cmake ..
+make
+sudo make install
+\`\`\`
+
+## Documentation
+See the included documentation folder or visit https://pipeline-sim.readthedocs.io
+
+## License
+MIT License - see LICENSE file
+
+---
+Generated with AI assistance
+EOF
+
+echo "Release packages created in $RELEASE_DIR/"
+echo "Contents:"
+ls -la $RELEASE_DIR/
+
+
+# ===== Dockerfile =====
+# AI_GENERATED: Docker container for Pipeline-Sim
+FROM ubuntu:22.04
+
+# Install dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    python3-dev \
+    python3-pip \
+    libeigen3-dev \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set working directory
+WORKDIR /app
+
+# Copy source code
+COPY . /app/
+
+# Build C++ core
+RUN mkdir build && cd build && \
+    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    make -j$(nproc) && \
+    make install
+
+# Install Python package
+RUN cd python && pip3 install -e .
+
+# Create user
+RUN useradd -m -s /bin/bash pipeline
+USER pipeline
+WORKDIR /home/pipeline
+
+# Entry point
+CMD ["pipeline-sim", "--help"]
+
+
+# ===== .readthedocs.yml =====
+# AI_GENERATED: Read the Docs configuration
+version: 2
+
+sphinx:
+  configuration: docs/conf.py
+
+formats:
+  - pdf
+  - htmlzip
+
+python:
+  version: "3.9"
+  install:
+    - requirements: docs/requirements.txt
+    - method: pip
+      path: python
+      extra_requirements:
+        - dev
+
+build:
+  os: ubuntu-22.04
+  tools:
+    python: "3.9"
+  apt_packages:
+    - libeigen3-dev
+
+
+# ===== docs/conf.py =====
+# AI_GENERATED: Sphinx documentation configuration
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../python'))
+
+project = 'Pipeline-Sim'
+copyright = '2025, Pipeline-Sim Contributors'
+author = 'Pipeline-Sim Contributors'
+release = '0.1.0'
+
+extensions = [
+    'sphinx.ext.autodoc',
+    'sphinx.ext.napoleon',
+    'sphinx.ext.viewcode',
+    'sphinx.ext.mathjax',
+    'sphinx_rtd_theme',
+]
+
+templates_path = ['_templates']
+exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
+
+html_theme = 'sphinx_rtd_theme'
+html_static_path = ['_static']
+
+# Napoleon settings
+napoleon_google_docstring = True
+napoleon_numpy_docstring = True
+
+
+# ===== scripts/install_dependencies.sh =====
+#!/bin/bash
+# AI_GENERATED: Install system dependencies
+# Generated on: 2025-06-27
+
+set -e
+
+echo "Installing Pipeline-Sim Dependencies"
+echo "==================================="
+
+# Detect OS
+if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+    # Linux
+    if command -v apt-get &> /dev/null; then
+        # Debian/Ubuntu
+        echo "Detected Debian/Ubuntu"
+        sudo apt-get update
+        sudo apt-get install -y \
+            build-essential \
+            cmake \
+            python3-dev \
+            python3-pip \
+            python3-venv \
+            libeigen3-dev \
+            libgtest-dev \
+            git \
+            doxygen \
+            graphviz
+            
+    elif command -v yum &> /dev/null; then
+        # RHEL/CentOS
+        echo "Detected RHEL/CentOS"
+        sudo yum install -y \
+            gcc-c++ \
+            cmake \
+            python3-devel \
+            python3-pip \
+            eigen3-devel \
+            gtest-devel \
+            git \
+            doxygen
+    fi
+    
+elif [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS
+    echo "Detected macOS"
+    
+    # Install Homebrew if not present
+    if ! command -v brew &> /dev/null; then
+        echo "Installing Homebrew..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    fi
+    
+    # Install dependencies
+    brew install cmake python eigen googletest doxygen graphviz
+    
+elif [[ "$OSTYPE" == "msys" || "$OSTYPE" == "cygwin" ]]; then
+    # Windows
+    echo "Detected Windows"
+    echo "Please install:"
+    echo "1. Visual Studio 2019 or later with C++ support"
+    echo "2. CMake (https://cmake.org/download/)"
+    echo "3. Python 3.8+ (https://www.python.org/downloads/)"
+    echo "4. Git (https://git-scm.com/download/win)"
+fi
+
+# Install Python dependencies
+echo "Installing Python dependencies..."
+pip3 install --user -r requirements-dev.txt
+
+echo "Dependencies installation complete!"
+
+
+if __name__ == "__main__":
+    main()

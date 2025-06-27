@@ -1,0 +1,47 @@
+{
+  "nodes": [
+    {
+      "id": "wellhead",
+      "type": "SOURCE",
+      "pressure": 5000000,
+      "elevation": 0
+    },
+    {
+      "id": "junction1",
+      "type": "JUNCTION",
+      "elevation": 100
+    },
+    {
+      "id": "separator",
+      "type": "SINK",
+      "flow_rate": 0.5,
+      "elevation": 50
+    }
+  ],
+  "pipes": [
+    {
+      "id": "pipe1",
+      "upstream": "wellhead",
+      "downstream": "junction1",
+      "length": 1000,
+      "diameter": 0.3,
+      "roughness": 0.000045
+    },
+    {
+      "id": "pipe2",
+      "upstream": "junction1",
+      "downstream": "separator",
+      "length": 2000,
+      "diameter": 0.25,
+      "inclination": -0.05
+    }
+  ],
+  "fluid": {
+    "oil_density": 850,
+    "gas_density": 0.85,
+    "water_density": 1025,
+    "oil_viscosity": 0.02,
+    "gas_oil_ratio": 100,
+    "water_cut": 0.1
+  }
+}

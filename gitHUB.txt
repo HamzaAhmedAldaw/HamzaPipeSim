@@ -1,0 +1,64 @@
+# Create GitHub Actions workflow
+mkdir -p .github/workflows
+cat > .github/workflows/ci.yml << 'EOF'
+# AI_GENERATED: CI/CD Pipeline
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python-version: [3.8, 3.9, '3.10']
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    
+    - name: Install dependencies (Ubuntu)
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y cmake libeigen3-dev
+    
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      run: brew install cmake eigen
+    
+    - name: Build C++ core
+      run: |
+        mkdir build
+        cd build
+        cmake .. -DBUILD_TESTS=ON
+        cmake --build .
+    
+    - name: Run C++ tests
+      run: |
+        cd build
+        ctest --output-on-failure
+    
+    - name: Install Python package
+      run: |
+        pip install -e python/[dev]
+    
+    - name: Run Python tests
+      run: |
+        cd python
+        pytest tests/ --cov=pipeline_sim
+    
+    - name: Lint Python code
+      run: |
+        cd python
+        flake8 pipeline_sim tests
+        black --check pipeline_sim tests
