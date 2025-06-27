@@ -1,5 +1,9 @@
-// ===== include/pipeline_sim/ml_integration.h =====
-#pragma once
+﻿#pragma once
+
+#include "pipeline_sim/fluid_properties.h"
+#include "pipeline_sim/solver.h"
+#include "pipeline_sim/correlations.h"
+#include <deque>
 
 #include "pipeline_sim/types.h"
 #include "pipeline_sim/network.h"

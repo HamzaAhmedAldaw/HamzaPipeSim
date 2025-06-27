@@ -1,12 +1,19 @@
-#pragma once
+﻿#pragma once
 
 #include "pipeline_sim/types.h"
 #include "pipeline_sim/fluid_properties.h"
 #include "pipeline_sim/pipe.h"
 #include <string>
 #include <map>
+#include <memory>
+#include <functional>
 
 namespace pipeline_sim {
+
+// Surface tension constant
+constexpr Real oil_water_tension = 0.03;  // N/m
+
+
 
 /// Flow pattern enumeration
 enum class FlowPattern {
@@ -17,7 +24,8 @@ enum class FlowPattern {
     BUBBLE = 4,
     SLUG = 5,
     CHURN = 6,
-    MIST = 7
+    MIST = 7,
+    STRATIFIED = 8  // Add this for compatibility
 };
 
 /// Base correlation interface
@@ -28,7 +36,7 @@ public:
         Real liquid_holdup;       // fraction
         FlowPattern flow_pattern;
         Real friction_factor;
-        Real mixture_density;     // kg/m³
+        Real mixture_density;     // kg/mÂ³
         Real mixture_velocity;    // m/s
         std::map<std::string, Real> additional_data;
     };
@@ -79,7 +87,9 @@ private:
         Real no_slip_holdup,
         Real froude_number,
         Real inclination,
-        FlowPattern pattern
+        FlowPattern pattern,
+        Real liquid_velocity,  // Add this parameter
+        const FluidProperties& fluid  // Add this parameter
     ) const;
 };
 
@@ -173,6 +183,36 @@ private:
         Real gas_flow,
         Real pipe_diameter,
         Real inclination
+    ) const;
+    
+    // Add missing method declarations
+    Real calculate_stratified_pressure_gradient(
+        const FluidProperties& fluid,
+        const Pipe& pipe,
+        Real velocity,
+        Real holdup,
+        bool is_liquid
+    ) const;
+    
+    Real calculate_slug_pressure_gradient(
+        const FluidProperties& fluid,
+        const Pipe& pipe,
+        Real vsl,
+        Real vsg,
+        Real holdup
+    ) const;
+    
+    Real calculate_annular_pressure_gradient(
+        const FluidProperties& fluid,
+        const Pipe& pipe,
+        Real vsl,
+        Real vsg,
+        Real holdup
+    ) const;
+    
+    Real calculate_friction_factor(
+        Real reynolds,
+        Real relative_roughness
     ) const;
 };
 

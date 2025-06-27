@@ -1,23 +1,20 @@
-/// AI_GENERATED: Solver interface and implementations
-/// Generated on: 2025-06-27
-#pragma once
+﻿#pragma once
 
 #include "pipeline_sim/types.h"
 #include "pipeline_sim/network.h"
 #include "pipeline_sim/fluid_properties.h"
-#include <memory>
+#include <chrono>
 #include <map>
+#include <vector>
 
 namespace pipeline_sim {
 
 /// Solver configuration
 struct SolverConfig {
     Real tolerance{1e-6};
-    int max_iterations{1000};
-    Real relaxation_factor{0.7};
+    int max_iterations{100};
+    Real relaxation_factor{1.0};
     bool verbose{false};
-    bool use_parallel{true};
-    int num_threads{0};  // 0 = auto-detect
 };
 
 /// Solution results
@@ -27,28 +24,26 @@ struct SolutionResults {
     Real residual{0.0};
     Real computation_time{0.0};
     
-    // Node results
     std::map<std::string, Real> node_pressures;
     std::map<std::string, Real> node_temperatures;
-    
-    // Pipe results
     std::map<std::string, Real> pipe_flow_rates;
     std::map<std::string, Real> pipe_pressure_drops;
-    std::map<std::string, Real> pipe_liquid_holdups;
     
-    // Access helpers
+    /// Get pressure drop for a pipe
     Real pressure_drop(const Ptr<Pipe>& pipe) const;
+    
+    /// Get outlet pressure for a pipe
     Real outlet_pressure(const Ptr<Pipe>& pipe) const;
 };
 
-/// Base solver interface
+/// Base solver class
 class Solver {
 public:
     Solver(Ptr<Network> network, const FluidProperties& fluid);
     virtual ~Solver() = default;
     
     /// Solve the network
-    virtual SolutionResults solve() = 0;
+    virtual SolutionResults solve();
     
     /// Get/set configuration
     SolverConfig& config() { return config_; }
@@ -59,10 +54,10 @@ protected:
     FluidProperties fluid_;
     SolverConfig config_;
     
-    /// Build system matrix
+    /// Build system matrix (pure virtual)
     virtual void build_system_matrix(SparseMatrix& A, Vector& b) = 0;
     
-    /// Update solution
+    /// Update solution from solution vector
     virtual void update_solution(const Vector& x) = 0;
     
     /// Check convergence
@@ -76,35 +71,16 @@ public:
     
     SolutionResults solve() override;
     
-private:
+protected:
     void build_system_matrix(SparseMatrix& A, Vector& b) override;
+    void apply_boundary_conditions(SparseMatrix& A, Vector& b);
     void update_solution(const Vector& x) override;
     bool check_convergence(const Vector& residual) override;
     
-    /// Calculate pressure drop for a pipe
     Real calculate_pressure_drop(const Ptr<Pipe>& pipe);
-    
-    /// Apply boundary conditions
-    void apply_boundary_conditions(SparseMatrix& A, Vector& b);
 };
 
-/// Transient solver (future implementation)
-class TransientSolver : public Solver {
-public:
-    using Solver::Solver;
-    
-    void set_time_step(Real dt) { time_step_ = dt; }
-    void set_simulation_time(Real t) { simulation_time_ = t; }
-    
-    SolutionResults solve() override;
-    
-private:
-    Real time_step_{1.0};
-    Real simulation_time_{3600.0};
-    
-    void build_system_matrix(SparseMatrix& A, Vector& b) override;
-    void update_solution(const Vector& x) override;
-    bool check_convergence(const Vector& residual) override;
-};
+// Forward declaration - TransientSolver is defined in transient_solver.h
+class TransientSolver;
 
 } // namespace pipeline_sim

@@ -1,5 +1,7 @@
-// ===== include/pipeline_sim/equipment.h =====
+﻿// ===== include/pipeline_sim/equipment.h =====
 #pragma once
+
+#include "pipeline_sim/fluid_properties.h"
 
 #include "pipeline_sim/types.h"
 #include "pipeline_sim/node.h"
@@ -43,7 +45,7 @@ class CentrifugalPump : public Equipment {
 public:
     CentrifugalPump(const std::string& id);
     
-    /// Set pump curve coefficients (H = a - b*Q - c*Q²)
+    /// Set pump curve coefficients (H = a - b*Q - c*QÂ²)
     void set_curve_coefficients(Real a, Real b, Real c) {
         a_ = a; b_ = b; c_ = c;
     }
@@ -73,7 +75,7 @@ public:
     Real head(Real flow_rate) const;
     
 private:
-    // Pump curve: H = a - b*Q - c*Q²
+    // Pump curve: H = a - b*Q - c*QÂ²
     Real a_{100.0};  // m
     Real b_{0.0};
     Real c_{1000.0};

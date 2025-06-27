@@ -1,4 +1,4 @@
-/// AI_GENERATED: ML integration implementation
+﻿/// AI_GENERATED: ML integration implementation
 /// Generated on: 2025-06-27
 
 // ===== src/ml_integration.cpp =====
@@ -146,7 +146,7 @@ void FeatureExtractor::normalize_features(Vector& features) {
         features(i) /= pressure_scale;
     }
     
-    // Flow normalization (m³/s)
+    // Flow normalization (mÂ³/s)
     Real flow_scale = 1.0;
     for (int i = 20; i < 24; ++i) {
         features(i) /= flow_scale;
@@ -219,51 +219,55 @@ Vector FlowPatternPredictor::predict(const Vector& features) {
     
     return network_->forward(features);
 }
-
 FlowPattern FlowPatternPredictor::predict_pattern(
     const Pipe& pipe,
     const FluidProperties& fluid,
     Real flow_rate
 ) {
-    // Extract features for single pipe
+    // Extract features for prediction
     Vector features(10);
     
     // Basic features
-    features(0) = pipe.length();
-    features(1) = pipe.diameter();
-    features(2) = pipe.inclination();
-    features(3) = flow_rate;
-    features(4) = fluid.oil_fraction;
-    features(5) = fluid.gas_fraction;
-    features(6) = fluid.water_fraction;
-    features(7) = fluid.mixture_density();
-    features(8) = fluid.mixture_viscosity();
-    features(9) = flow_rate / pipe.area();  // Velocity
+    Real area = pipe.area();
+    Real liquid_frac = fluid.oil_fraction + fluid.water_fraction;
+    Real vsl = flow_rate * liquid_frac / area;
+    Real vsg = flow_rate * fluid.gas_fraction / area;
+    Real vm = vsl + vsg;
     
-    // Normalize
-    features(0) /= 1000.0;   // Length in km
-    features(1) /= 0.5;      // Diameter in 0.5m units
-    features(3) /= 0.1;      // Flow in 0.1 m³/s units
-    features(7) /= 1000.0;   // Density in g/cm³
-    features(8) /= 0.01;     // Viscosity in 10 cP units
-    features(9) /= 10.0;     // Velocity in 10 m/s units
+    features(0) = vsl;
+    features(1) = vsg;
+    features(2) = pipe.diameter();
+    features(3) = pipe.inclination();
+    features(4) = fluid.oil_density;
+    features(5) = fluid.gas_density;
+    features(6) = fluid.oil_viscosity;
+    features(7) = fluid.gas_viscosity;
+    features(8) = vm * vm / (9.81 * pipe.diameter()); // Froude number
+    features(9) = vsl / vm; // No-slip holdup
     
-    // Predict
-    Vector probabilities = predict(features);
+    // Normalize features
+    FeatureExtractor::normalize_features(features);
     
-    // Find most likely pattern
-    int max_idx = 0;
-    Real max_prob = probabilities(0);
-    for (int i = 1; i < probabilities.size(); ++i) {
-        if (probabilities(i) > max_prob) {
-            max_prob = probabilities(i);
-            max_idx = i;
+    // Predict using neural network
+    if (network_) {
+        Vector output = network_->forward(features);
+        
+        // Find maximum probability
+        int max_idx = 0;
+        Real max_prob = output(0);
+        for (int i = 1; i < output.size(); ++i) {
+            if (output(i) > max_prob) {
+                max_prob = output(i);
+                max_idx = i;
+            }
         }
+        
+        return static_cast<FlowPattern>(max_idx);
     }
     
-    return static_cast<FlowPattern>(max_idx);
+    // Default fallback
+    return FlowPattern::SLUG;
 }
-
 // Anomaly Detector Implementation
 Real AnomalyDetector::IsolationTree::path_length(const Vector& sample) const {
     Node* current = root.get();
@@ -436,7 +440,7 @@ void MLOptimizer::evaluate_fitness(
         // (Simplified - would actually modify pump speeds, valve openings, etc.)
         
         // Run simulation
-        SteadyStateSolver solver(network, fluid);
+        SteadyStateSolver solver(std::make_shared<Network>(network), fluid);
         auto results = solver.solve();
         
         // Calculate fitness based on objective
@@ -604,42 +608,38 @@ FlowCorrelation::Results DataDrivenCorrelation::calculate(
     
     // Extract features
     Vector features(12);
-    features(0) = pipe.length();
+    
+    Real area = pipe.area();
+    Real velocity = flow_rate / area;
+    Real reynolds = fluid.mixture_density() * velocity * pipe.diameter() / fluid.mixture_viscosity();
+    
+    features(0) = flow_rate;
     features(1) = pipe.diameter();
-    features(2) = pipe.roughness();
-    features(3) = pipe.inclination();
-    features(4) = flow_rate;
-    features(5) = inlet_pressure;
-    features(6) = inlet_temperature;
-    features(7) = fluid.oil_fraction;
-    features(8) = fluid.gas_fraction;
-    features(9) = fluid.water_fraction;
-    features(10) = fluid.mixture_density();
-    features(11) = fluid.mixture_viscosity();
+    features(2) = pipe.length();
+    features(3) = pipe.roughness();
+    features(4) = pipe.inclination();
+    features(5) = fluid.mixture_density();
+    features(6) = fluid.mixture_viscosity();
+    features(7) = reynolds;
+    features(8) = velocity;
+    features(9) = inlet_pressure;
+    features(10) = inlet_temperature;
+    features(11) = fluid.gas_fraction;
     
-    // Normalize features (would use saved normalization parameters)
-    features(0) /= 1000.0;    // km
-    features(1) /= 0.5;       // 0.5m units
-    features(4) /= 0.1;       // 0.1 m³/s units
-    features(5) /= 50e5;      // 50 bar units
-    features(6) /= 300.0;     // 300K units
-    features(10) /= 1000.0;   // g/cm³
-    features(11) /= 0.01;     // 10 cP units
-    
-    // Predict pressure gradient
-    Real pressure_gradient = 0.0;
+    // Predict pressure gradient using random forest
+    Real dp_predicted = 0.0;
     for (const auto& tree : forest_) {
-        pressure_gradient += tree.predict(features);
+        dp_predicted += tree.predict(features);
     }
-    pressure_gradient /= forest_.size();
+    dp_predicted /= forest_.size();
     
-    results.pressure_gradient = pressure_gradient;
-    
-    // Estimate other properties (simplified)
-    results.liquid_holdup = 1.0 - fluid.gas_fraction * 0.8;
-    results.flow_pattern = FlowPattern::INTERMITTENT;
+    // Fill results
+    results.pressure_gradient = dp_predicted;
+    results.liquid_holdup = 1.0 - fluid.gas_fraction; // Simplified
+    results.flow_pattern = FlowPattern::SLUG; // Default
+    results.friction_factor = 0.02; // Approximate
     results.mixture_density = fluid.mixture_density();
-    results.mixture_velocity = flow_rate / pipe.area();
+    results.mixture_velocity = velocity;
     
     return results;
 }
@@ -822,7 +822,7 @@ std::vector<DigitalTwin::Discrepancy> DigitalTwin::detect_discrepancies() {
         }
         
         Real imbalance = std::abs(inflow - outflow);
-        if (imbalance > 0.01) {  // 0.01 m³/s threshold
+        if (imbalance > 0.01) {  // 0.01 mÂ³/s threshold
             Discrepancy disc;
             disc.location = node_id;
             disc.type = "leak";
@@ -837,3 +837,4 @@ std::vector<DigitalTwin::Discrepancy> DigitalTwin::detect_discrepancies() {
 
 } // namespace ml
 } // namespace pipeline_sim
+
