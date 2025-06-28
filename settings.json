@@ -1,0 +1,12 @@
+{
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/build/lib.win-amd64-cpython-313",
+        "${workspaceFolder}/python",
+        "${workspaceFolder}"
+    ],
+    "python.analysis.stubPath": "${workspaceFolder}/stubs",
+    "python.analysis.reportMissingImports": "warning",
+    "python.linting.pylintArgs": [
+        "--extension-pkg-whitelist=pipeline_sim"
+    ]
+}

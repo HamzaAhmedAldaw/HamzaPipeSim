@@ -1,0 +1,38 @@
+{
+  "nodes": [
+    {
+      "id": "inlet",
+      "type": "SOURCE",
+      "elevation": 0.0
+    },
+    {
+      "id": "outlet",
+      "type": "SINK",
+      "elevation": 10.0
+    }
+  ],
+  "pipes": [
+    {
+      "id": "pipe1",
+      "upstream": "inlet",
+      "downstream": "outlet",
+      "length": 1000.0,
+      "diameter": 0.3,
+      "roughness": 4.5e-05
+    }
+  ],
+  "boundary_conditions": {
+    "pressure": [
+      {
+        "node": "inlet",
+        "value": 5000000.0
+      }
+    ],
+    "flow": [
+      {
+        "node": "outlet",
+        "value": 0.1
+      }
+    ]
+  }
+}
