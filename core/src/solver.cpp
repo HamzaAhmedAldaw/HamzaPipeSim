@@ -1,4 +1,4 @@
-// ===== core/src/solver.cpp =====
+// ===== solver.cpp =====
 #include "pipeline_sim/solver.h"
 #include <Eigen/SparseLU>
 #include <chrono>
@@ -117,15 +117,10 @@ void SteadyStateSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
     
     // Mass conservation equations at nodes
     for (const auto& [node_id, node] : nodes) {
-        size_t node_idx = network_->node_index(node_id);
+        int node_idx = static_cast<int>(network_->node_index(node_id));
         
-        // FIXED: Don't skip pressure BC nodes, add equation for them
-        if (network_->pressure_specs().count(node_id) > 0) {
-            // For pressure BC, add identity equation: x[node_idx] = pressure_bc
-            triplets.push_back(Eigen::Triplet<Real>(node_idx, node_idx, 1.0));
-            b(node_idx) = network_->pressure_specs().at(node_id);
-            continue;
-        }
+        // Skip if pressure is specified
+        if (network_->pressure_specs().count(node_id) > 0) continue;
         
         // Sum of flows = 0 (or specified flow)
         Real specified_flow = 0.0;
@@ -135,13 +130,13 @@ void SteadyStateSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
         
         // Upstream pipes contribute positive flow
         for (const auto& pipe : network_->get_upstream_pipes(node)) {
-            size_t pipe_idx = network_->pipe_index(pipe->id()) + nodes.size();
+            int pipe_idx = static_cast<int>(network_->pipe_index(pipe->id()) + nodes.size());
             triplets.push_back(Eigen::Triplet<Real>(node_idx, pipe_idx, 1.0));
         }
         
         // Downstream pipes contribute negative flow
         for (const auto& pipe : network_->get_downstream_pipes(node)) {
-            size_t pipe_idx = network_->pipe_index(pipe->id()) + nodes.size();
+            int pipe_idx = static_cast<int>(network_->pipe_index(pipe->id()) + nodes.size());
             triplets.push_back(Eigen::Triplet<Real>(node_idx, pipe_idx, -1.0));
         }
         
@@ -150,9 +145,9 @@ void SteadyStateSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
     
     // Momentum equations for pipes
     for (const auto& [pipe_id, pipe] : pipes) {
-        size_t pipe_idx = network_->pipe_index(pipe_id) + nodes.size();
-        size_t upstream_idx = network_->node_index(pipe->upstream()->id());
-        size_t downstream_idx = network_->node_index(pipe->downstream()->id());
+        int pipe_idx = static_cast<int>(network_->pipe_index(pipe_id) + nodes.size());
+        int upstream_idx = static_cast<int>(network_->node_index(pipe->upstream()->id()));
+        int downstream_idx = static_cast<int>(network_->node_index(pipe->downstream()->id()));
         
         // Pressure difference drives flow
         triplets.push_back(Eigen::Triplet<Real>(pipe_idx, upstream_idx, 1.0));
@@ -186,8 +181,23 @@ void SteadyStateSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
 }
 
 void SteadyStateSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
-    // REMOVED: This function is no longer needed since we handle BCs in build_system_matrix
-    // Keeping empty function for compatibility
+    const auto& nodes = network_->nodes();
+    
+    // Apply pressure boundary conditions
+    for (const auto& [node_id, pressure] : network_->pressure_specs()) {
+        int idx = static_cast<int>(network_->node_index(node_id));
+        
+        // Set row to identity
+        for (int k = 0; k < A.outerSize(); ++k) {
+            for (SparseMatrix::InnerIterator it(A, k); it; ++it) {
+                if (it.row() == idx) {
+                    it.valueRef() = (it.col() == idx) ? 1.0 : 0.0;
+                }
+            }
+        }
+        
+        b(idx) = pressure;
+    }
 }
 
 void SteadyStateSolver::update_solution(const Vector& x) {
@@ -196,13 +206,13 @@ void SteadyStateSolver::update_solution(const Vector& x) {
     
     // Update node pressures
     for (const auto& [node_id, node] : nodes) {
-        size_t idx = network_->node_index(node_id);
+        int idx = static_cast<int>(network_->node_index(node_id));
         node->set_pressure(x(idx));
     }
     
     // Update pipe flows
     for (const auto& [pipe_id, pipe] : pipes) {
-        size_t idx = network_->pipe_index(pipe_id) + nodes.size();
+        int idx = static_cast<int>(network_->pipe_index(pipe_id) + nodes.size());
         pipe->set_flow_rate(x(idx));
     }
 }

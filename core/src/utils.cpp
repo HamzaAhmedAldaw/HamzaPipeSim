@@ -1,59 +1,44 @@
-// ===== utils.cpp =====
-#include "pipeline_sim/utils.h"
-#include <fstream>
+#include "pipeline_sim/types.h"
+#include <string>
+#include <sstream>
 #include <iomanip>
 
 namespace pipeline_sim {
 
-void save_results_to_csv(const SolutionResults& results, 
-                         const std::string& filename) {
-    std::ofstream file(filename);
-    
-    // Write node results
-    file << "Node Results\n";
-    file << "Node ID,Pressure (Pa),Temperature (K)\n";
-    
-    for (const auto& [id, pressure] : results.node_pressures) {
-        Real temp = results.node_temperatures.at(id);
-        file << id << "," << pressure << "," << temp << "\n";
-    }
-    
-    // Write pipe results
-    file << "\nPipe Results\n";
-    file << "Pipe ID,Flow Rate (m3/s),Pressure Drop (Pa),Liquid Holdup\n";
-    
-    for (const auto& [id, flow] : results.pipe_flow_rates) {
-        Real dp = results.pipe_pressure_drops.at(id);
-        Real holdup = 0.0;  // Default if not calculated
-        if (results.pipe_liquid_holdups.count(id) > 0) {
-            holdup = results.pipe_liquid_holdups.at(id);
-        }
-        file << id << "," << flow << "," << dp << "," << holdup << "\n";
-    }
-    
-    file.close();
+// Utility functions for the pipeline simulation library
+
+std::string format_pressure(Real pressure) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(2) << pressure / 1e5 << " bar";
+    return oss.str();
 }
 
-void print_results_summary(const SolutionResults& results) {
-    std::cout << "\n=== Simulation Results ===\n";
-    std::cout << "Converged: " << (results.converged ? "Yes" : "No") << "\n";
-    std::cout << "Iterations: " << results.iterations << "\n";
-    std::cout << "Final Residual: " << std::scientific 
-              << std::setprecision(3) << results.residual << "\n";
-    std::cout << "Computation Time: " << std::fixed 
-              << std::setprecision(3) << results.computation_time << " s\n";
-    
-    std::cout << "\nNode Pressures:\n";
-    for (const auto& [id, pressure] : results.node_pressures) {
-        std::cout << "  " << id << ": " 
-                  << pressure / 1e5 << " bar\n";  // Convert to bar
-    }
-    
-    std::cout << "\nPipe Flow Rates:\n";
-    for (const auto& [id, flow] : results.pipe_flow_rates) {
-        std::cout << "  " << id << ": " 
-                  << flow << " mÂ³/s\n";
-    }
+std::string format_temperature(Real temperature) {
+    std::ostringstream oss;
+    oss << std::fixed << std::setprecision(1) << (temperature - 273.15) << " °C";
+    return oss.str();
+}
+
+std::string format_flow_rate(Real flow_rate) {
+    std::ostringstream oss;
+    oss << std::scientific << std::setprecision(3) << flow_rate << " m³/s";
+    return oss.str();
+}
+
+Real convert_bar_to_pa(Real bar) {
+    return bar * 1e5;
+}
+
+Real convert_pa_to_bar(Real pa) {
+    return pa / 1e5;
+}
+
+Real convert_celsius_to_kelvin(Real celsius) {
+    return celsius + 273.15;
+}
+
+Real convert_kelvin_to_celsius(Real kelvin) {
+    return kelvin - 273.15;
 }
 
 } // namespace pipeline_sim
