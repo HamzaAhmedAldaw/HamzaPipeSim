@@ -8,8 +8,12 @@ from setuptools import setup, find_packages
 import os
 
 # Read README
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+try:
+    with open("README.md", "r", encoding="utf-8", errors='ignore') as fh:
+        long_description = fh.read()
+except:
+    long_description = "HamzaPipeSim - Pipeline Network Simulation Package"
+
 
 # Read requirements
 with open("requirements.txt", "r", encoding="utf-8") as fh:
