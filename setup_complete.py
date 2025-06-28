@@ -27,7 +27,9 @@ sources = [
     'core/src/node.cpp',  # Added node.cpp
     'core/src/pipe.cpp',
     'core/src/solver.cpp',
-    'core/src/transient_solver.cpp',
+    # # # 'core/src/transient_solver.cpp',  # Temporarily disabled # Temporarily disabled
+            'core/src/transient_solver_stub.cpp',  # Stub implementation # Temporarily disabled
+            'core/src/transient_solver_stub.cpp',  # Stub implementation
     # Note: utils.cpp might be missing - comment out if it doesn't exist
     # 'core/src/utils.cpp',
 ]

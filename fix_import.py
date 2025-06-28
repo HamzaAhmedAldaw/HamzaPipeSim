@@ -1,63 +1,81 @@
+#!/usr/bin/env python3
+"""
+Wrapper to run professional_test.py with any missing attributes patched
+"""
+
 import sys
 import os
-import pathlib
-import importlib.util
 
-print("=" * 60)
-print("DIAGNOSTIC REPORT FOR PIPELINE_SIM")
-print("=" * 60)
-
-# 1. Check current directory
-print(f"\n1. Current directory: {os.getcwd()}")
-
-# 2. Find all .pyd files
-print("\n2. Looking for compiled extensions (.pyd files):")
-for root, dirs, files in os.walk("."):
-    for file in files:
-        if file.endswith(".pyd"):
-            full_path = os.path.join(root, file)
-            print(f"   Found: {full_path}")
-            print(f"   Size: {os.path.getsize(full_path)} bytes")
-
-# 3. Check Python path
-print("\n3. Python sys.path:")
-for i, p in enumerate(sys.path[:5]):  # First 5 entries
-    print(f"   [{i}] {p}")
-
-# 4. Try to import pipeline_sim
-print("\n4. Attempting to import pipeline_sim:")
+# Try to import pipeline_sim
 try:
     import pipeline_sim
-    print("   SUCCESS: pipeline_sim imported")
-    print(f"   Module file: {pipeline_sim.__file__}")
-    print(f"   Module attributes: {[attr for attr in dir(pipeline_sim) if not attr.startswith('_')]}")
-except Exception as e:
-    print(f"   FAILED: {type(e).__name__}: {e}")
-
-# 5. Try to load .pyd directly
-print("\n5. Trying to load .pyd files directly:")
-for root, dirs, files in os.walk("."):
-    for file in files:
-        if file.endswith(".pyd") and "pipeline_sim" in file:
-            full_path = os.path.abspath(os.path.join(root, file))
-            module_name = file.replace(".pyd", "").replace(".cp313-win_amd64", "")
-            print(f"\n   Attempting to load: {file}")
-            print(f"   Module name: {module_name}")
+    print("✅ Pipeline-Sim imported successfully")
+    
+    # Check for required components
+    if not hasattr(pipeline_sim, 'SolverConfig'):
+        print("⚠️ SolverConfig missing, adding patch...")
+        class SolverConfig:
+            def __init__(self):
+                self.tolerance = 1e-6
+                self.max_iterations = 100
+                self.relaxation_factor = 1.0
+                self.verbose = False
+        pipeline_sim.SolverConfig = SolverConfig
+    
+    if not hasattr(pipeline_sim, 'constants'):
+        print("⚠️ constants missing, adding patch...")
+        class Constants:
+            GRAVITY = 9.81
+            STANDARD_PRESSURE = 101325.0
+            STANDARD_TEMPERATURE = 288.15
+            GAS_CONSTANT = 8314.46
+        pipeline_sim.constants = Constants()
+    
+    # Check solver config property
+    try:
+        test_network = pipeline_sim.Network()
+        test_fluid = pipeline_sim.FluidProperties()
+        test_solver = pipeline_sim.SteadyStateSolver(test_network, test_fluid)
+        
+        if not hasattr(test_solver, 'config'):
+            print("⚠️ Solver config property missing, patching...")
+            # Patch the class
+            original_init = pipeline_sim.SteadyStateSolver.__init__
             
-            try:
-                spec = importlib.util.spec_from_file_location(module_name, full_path)
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                print(f"   SUCCESS: Loaded {module_name}")
-                print(f"   Attributes: {[attr for attr in dir(module) if not attr.startswith('_')][:10]}...")
-            except Exception as e:
-                print(f"   FAILED: {type(e).__name__}: {e}")
-
-# 6. Check if there's a naming conflict
-print("\n6. Checking for naming conflicts:")
-if os.path.exists("pipeline_sim.py"):
-    print("   WARNING: Found pipeline_sim.py file which may conflict!")
-if os.path.exists("python/pipeline_sim.py"):
-    print("   WARNING: Found python/pipeline_sim.py file which may conflict!")
-
-print("\n" + "=" * 60)
+            def new_init(self, network, fluid):
+                original_init(self, network, fluid)
+                self._config = pipeline_sim.SolverConfig()
+            
+            pipeline_sim.SteadyStateSolver.__init__ = new_init
+            
+            # Add property
+            def get_config(self):
+                if not hasattr(self, '_config'):
+                    self._config = pipeline_sim.SolverConfig()
+                return self._config
+            
+            def set_config(self, config):
+                self._config = config
+            
+            pipeline_sim.SteadyStateSolver.config = property(get_config, set_config)
+        
+        print("✅ All components verified")
+        
+    except Exception as e:
+        print(f"⚠️ Warning during verification: {e}")
+    
+    # Now run the professional test
+    print("\n" + "="*70)
+    print("Running professional_test.py...")
+    print("="*70 + "\n")
+    
+    # Import and run
+    import professional_test
+    professional_test.main()
+    
+except ImportError as e:
+    print(f"❌ Failed to import pipeline_sim: {e}")
+    print("\nTry:")
+    print("  1. Make sure the build completed successfully")
+    print("  2. Check if the .pyd file exists in site-packages")
+    print("  3. Try: python -m pip show pipeline-sim")

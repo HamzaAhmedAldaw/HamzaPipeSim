@@ -1,0 +1,436 @@
+#include "pipeline_sim/transient_solver.h"
+#include "pipeline_sim/solver.h"
+#include <iostream>
+#include <iomanip>
+#include <fstream>
+#include <algorithm>
+#include <cmath>
+
+namespace pipeline_sim {
+
+// Event implementations
+void ValveClosureEvent::apply(Network& network, Real time) {
+    // Implementation for valve closure
+    auto valve = network.get_node(valve_id_);
+    if (valve) {
+        Real progress = (time - start_time_) / duration_;
+        progress = std::min(1.0, std::max(0.0, progress));
+        Real opening = 1.0 - progress * (1.0 - final_opening_);
+        // In a real implementation, we would set valve characteristics here
+        // For now, we'll just log the action
+        if (opening < 0.01) {
+            // Valve is essentially closed
+            valve->set_pressure(valve->pressure() * 0.1); // Simplified pressure drop
+        }
+    }
+}
+
+void PumpTripEvent::apply(Network& network, Real time) {
+    // Implementation for pump trip
+    auto pump = network.get_node(pump_id_);
+    if (pump && !triggered_) {
+        // In a real implementation, we would stop the pump
+        // For now, we'll simulate by reducing downstream pressure
+        pump->set_pressure(pump->pressure() * 0.5);
+        triggered_ = true;
+    }
+}
+
+// TransientSolver implementation
+SolutionResults TransientSolver::solve() {
+    auto start_time = std::chrono::high_resolution_clock::now();
+    
+    SolutionResults results;
+    
+    // Initialize with steady-state
+    std::cout << "Computing initial steady-state solution..." << std::endl;
+    SteadyStateSolver steady_solver(network_, fluid_);
+    steady_solver.set_config(config_);
+    auto steady_results = steady_solver.solve();
+    
+    if (!steady_results.converged) {
+        std::cerr << "Failed to compute initial steady-state!" << std::endl;
+        results.converged = false;
+        return results;
+    }
+    
+    current_time_ = 0.0;
+    double next_output_time = 0.0;
+    
+    // Calculate wave speeds and check CFL
+    calculate_wave_speeds();
+    if (!check_cfl_condition() && config_.verbose) {
+        std::cout << "Warning: CFL condition may be violated!" << std::endl;
+    }
+    
+    // Initialize solution history
+    history_.times.clear();
+    history_.node_pressures.clear();
+    history_.pipe_flows.clear();
+    
+    // Store initial conditions
+    size_t n = network_->nodes().size() + network_->pipes().size();
+    Vector x(n);
+    
+    // Copy steady-state solution
+    size_t idx = 0;
+    for (const auto& [id, node] : network_->nodes()) {
+        x(idx++) = node->pressure();
+    }
+    for (const auto& [id, pipe] : network_->pipes()) {
+        x(idx++) = pipe->flow_rate();
+    }
+    
+    solution_old_ = x;
+    solution_old2_ = x;
+    
+    // Save initial state
+    update_solution(solution_old_);
+    save_to_history();
+    
+    // Open output file if specified
+    if (!output_file_.empty()) {
+        output_stream_.open(output_file_);
+        if (output_stream_.is_open()) {
+            write_output_header();
+            write_output_state();
+        }
+    }
+    
+    // Time stepping loop
+    int step = 0;
+    while (current_time_ < simulation_time_) {
+        step++;
+        
+        // Process events
+        process_events();
+        
+        // Build and solve system
+        SparseMatrix A(n, n);
+        Vector b(n);
+        
+        build_system_matrix(A, b);
+        
+        // Solve linear system
+        Eigen::SparseLU<SparseMatrix> solver;
+        solver.compute(A);
+        
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Matrix decomposition failed at t=" << current_time_ << std::endl;
+            break;
+        }
+        
+        Vector x_new = solver.solve(b);
+        
+        if (solver.info() != Eigen::Success) {
+            std::cerr << "Solution failed at t=" << current_time_ << std::endl;
+            break;
+        }
+        
+        // Update solution
+        update_solution(x_new);
+        
+        // Check convergence (for implicit schemes)
+        Vector residual = A * x_new - b;
+        results.residual = residual.norm();
+        
+        if (config_.verbose && step % 10 == 0) {
+            std::cout << "Time step " << step << ": t=" << current_time_ 
+                     << ", residual=" << results.residual << std::endl;
+        }
+        
+        // Save to history
+        if (current_time_ >= next_output_time) {
+            save_to_history();
+            if (output_stream_.is_open()) {
+                write_output_state();
+            }
+            next_output_time += output_interval_;
+        }
+        
+        // Prepare for next time step
+        solution_old2_ = solution_old_;
+        solution_old_ = x_new;
+        current_time_ += time_step_;
+    }
+    
+    // Close output file
+    if (output_stream_.is_open()) {
+        output_stream_.close();
+    }
+    
+    // Prepare results
+    results.converged = true;
+    results.iterations = step;
+    
+    // Store final state
+    for (const auto& [id, node] : network_->nodes()) {
+        results.node_pressures[id] = node->pressure();
+        results.node_temperatures[id] = node->temperature();
+    }
+    
+    for (const auto& [id, pipe] : network_->pipes()) {
+        results.pipe_flow_rates[id] = pipe->flow_rate();
+        results.pipe_pressure_drops[id] = pipe->upstream()->pressure() - pipe->downstream()->pressure();
+        results.pipe_velocities[id] = pipe->velocity();
+    }
+    
+    // Calculate mass imbalance
+    Real max_imbalance = 0.0;
+    for (const auto& [node_id, node] : network_->nodes()) {
+        if (network_->pressure_specs().count(node_id) > 0) continue;
+        
+        Real imbalance = 0.0;
+        for (const auto& pipe : network_->get_upstream_pipes(node)) {
+            imbalance += pipe->flow_rate() * fluid_.mixture_density();
+        }
+        for (const auto& pipe : network_->get_downstream_pipes(node)) {
+            imbalance -= pipe->flow_rate() * fluid_.mixture_density();
+        }
+        
+        max_imbalance = std::max(max_imbalance, std::abs(imbalance));
+    }
+    results.max_mass_imbalance = max_imbalance;
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    results.computation_time = std::chrono::duration<Real>(end_time - start_time).count();
+    
+    return results;
+}
+
+void TransientSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
+    // Build the transient system matrix based on time scheme
+    
+    // For now, we'll use a simplified implicit Euler scheme
+    // In a full implementation, this would handle different time schemes
+    
+    // Get the steady-state matrix as a starting point
+    SteadyStateSolver temp_solver(network_, fluid_);
+    temp_solver.set_config(config_);
+    
+    // Build spatial discretization
+    std::vector<Eigen::Triplet<Real>> triplets;
+    temp_solver.build_system_matrix(A, b, triplets);
+    
+    // Add time derivative terms for implicit Euler
+    // (M/dt)(x^{n+1} - x^n) + K*x^{n+1} = F
+    // Rearranging: (M/dt + K)*x^{n+1} = F + (M/dt)*x^n
+    
+    size_t node_count = network_->nodes().size();
+    
+    // Add mass matrix terms (simplified - just for pressure nodes)
+    for (size_t i = 0; i < node_count; ++i) {
+        Real mass_term = 1.0 / time_step_;  // Simplified mass matrix
+        A.coeffRef(static_cast<int>(i), static_cast<int>(i)) += mass_term;
+        b(i) += mass_term * solution_old_(i);
+    }
+}
+
+void TransientSolver::calculate_wave_speeds() {
+    // Calculate wave speeds for each pipe
+    for (const auto& [id, pipe] : network_->pipes()) {
+        Real a = 0.0;
+        
+        if (wave_speed_method_ == "homogeneous") {
+            // Simplified homogeneous model
+            a = 1000.0; // m/s (typical for water)
+        } else if (wave_speed_method_ == "wallis") {
+            // Wallis correlation (simplified)
+            Real void_fraction = fluid_.gas_fraction();
+            a = 1000.0 / std::sqrt(1.0 + 2000.0 * void_fraction);
+        } else {
+            // Default measured/automatic
+            a = 1200.0; // m/s (default value)
+        }
+        
+        wave_speeds_[id] = a;
+    }
+}
+
+bool TransientSolver::check_cfl_condition() const {
+    Real max_cfl = 0.0;
+    bool satisfied = true;
+    
+    for (const auto& [id, pipe] : network_->pipes()) {
+        auto it = wave_speeds_.find(id);
+        if (it == wave_speeds_.end()) continue;
+        
+        Real a = it->second;
+        Real dx = pipe->length() / 10.0; // Assume 10 segments
+        Real cfl = a * time_step_ / dx;
+        
+        if (cfl > max_cfl) {
+            max_cfl = cfl;
+        }
+        
+        if (cfl > 1.0) {
+            satisfied = false;
+            if (config_.verbose) {
+                std::cout << "Warning: CFL = " << cfl << " > 1.0 for pipe " << id << std::endl;
+            }
+        }
+    }
+    
+    if (config_.verbose) {
+        std::cout << "Maximum CFL number: " << max_cfl << std::endl;
+    }
+    
+    return satisfied;
+}
+
+void TransientSolver::process_events() {
+    for (auto& event : events_) {
+        if (event->should_trigger(current_time_)) {
+            event->apply(*network_, current_time_);
+            
+            if (config_.verbose) {
+                std::cout << "Applied event: " << event->description() 
+                         << " at t=" << current_time_ << std::endl;
+            }
+        }
+    }
+}
+
+void TransientSolver::save_to_history() {
+    history_.times.push_back(current_time_);
+    
+    for (const auto& [id, node] : network_->nodes()) {
+        if (history_.node_pressures.find(id) == history_.node_pressures.end()) {
+            history_.node_pressures[id] = std::vector<Real>();
+        }
+        history_.node_pressures[id].push_back(node->pressure());
+    }
+    
+    for (const auto& [id, pipe] : network_->pipes()) {
+        if (history_.pipe_flows.find(id) == history_.pipe_flows.end()) {
+            history_.pipe_flows[id] = std::vector<Real>();
+        }
+        history_.pipe_flows[id].push_back(pipe->flow_rate());
+    }
+}
+
+void TransientSolver::write_output_header() {
+    if (!output_stream_.is_open()) return;
+    
+    output_stream_ << "Time";
+    
+    for (const auto& [id, node] : network_->nodes()) {
+        output_stream_ << "," << id << "_pressure";
+    }
+    
+    for (const auto& [id, pipe] : network_->pipes()) {
+        output_stream_ << "," << id << "_flow";
+    }
+    
+    output_stream_ << std::endl;
+}
+
+void TransientSolver::write_output_state() {
+    if (!output_stream_.is_open()) return;
+    
+    output_stream_ << current_time_;
+    
+    for (const auto& [id, node] : network_->nodes()) {
+        output_stream_ << "," << node->pressure();
+    }
+    
+    for (const auto& [id, pipe] : network_->pipes()) {
+        output_stream_ << "," << pipe->flow_rate();
+    }
+    
+    output_stream_ << std::endl;
+}
+
+void TransientSolver::update_solution(const Vector& x) {
+    size_t idx = 0;
+    
+    // Update node pressures
+    for (const auto& [id, node] : network_->nodes()) {
+        node->set_pressure(x(idx++));
+    }
+    
+    // Update pipe flows
+    for (const auto& [id, pipe] : network_->pipes()) {
+        pipe->set_flow_rate(x(idx++));
+    }
+}
+
+bool TransientSolver::check_convergence(const Vector& residual) {
+    return residual.norm() < config_.tolerance;
+}
+
+void TransientSolver::apply_method_of_characteristics(SparseMatrix& A, Vector& b) {
+    // Method of characteristics implementation
+    // This is a placeholder for the full MOC implementation
+    // In a complete implementation, this would handle:
+    // - Characteristic equations
+    // - Boundary conditions
+    // - Junction compatibility
+}
+
+// LinePackCalculator implementation
+LinePackCalculator::LinePackResult LinePackCalculator::calculate(
+    const Network& network,
+    const SolutionResults& results,
+    const FluidProperties& fluid
+) {
+    LinePackResult result;
+    result.total_mass = 0.0;
+    result.total_volume = 0.0;
+    result.average_pressure = 0.0;
+    result.average_density = fluid.mixture_density();
+    
+    Real total_pipe_volume = 0.0;
+    
+    for (const auto& [id, pipe] : network.pipes()) {
+        Real volume = pipe->volume();
+        Real pressure = (pipe->upstream()->pressure() + pipe->downstream()->pressure()) / 2.0;
+        Real density = fluid.mixture_density(); // Simplified - should account for compressibility
+        Real mass = density * volume;
+        
+        result.pipe_masses[id] = mass;
+        result.total_mass += mass;
+        result.total_volume += volume;
+        result.average_pressure += pressure * volume;
+        total_pipe_volume += volume;
+    }
+    
+    if (total_pipe_volume > 0) {
+        result.average_pressure /= total_pipe_volume;
+    }
+    
+    return result;
+}
+
+// SurgeAnalyzer implementation
+SurgeAnalyzer::SurgeResult SurgeAnalyzer::analyze(
+    const TransientSolver::TimeHistory& history,
+    const Network& network,
+    Real mawp
+) {
+    SurgeResult result;
+    result.max_pressure = 0.0;
+    result.min_pressure = 1e10;
+    result.exceeds_mawp = false;
+    
+    // Analyze pressure history
+    for (const auto& [node_id, pressures] : history.node_pressures) {
+        for (Real p : pressures) {
+            if (p > result.max_pressure) {
+                result.max_pressure = p;
+                result.max_location = node_id;
+            }
+            if (p < result.min_pressure) {
+                result.min_pressure = p;
+                result.min_location = node_id;
+            }
+        }
+    }
+    
+    result.surge_pressure = result.max_pressure - result.min_pressure;
+    result.exceeds_mawp = (result.max_pressure > mawp);
+    
+    return result;
+}
+
+} // namespace pipeline_sim

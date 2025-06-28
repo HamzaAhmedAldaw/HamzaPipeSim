@@ -1,187 +1,221 @@
-// ===== transient_solver.h =====
-#ifndef PIPELINE_SIM_TRANSIENT_SOLVER_H
-#define PIPELINE_SIM_TRANSIENT_SOLVER_H
+/// AI_GENERATED: Transient solver and ML integration
+/// Generated on: 2025-06-27
+
+// ===== include/pipeline_sim/transient_solver.h =====
+#pragma once
 
 #include "pipeline_sim/solver.h"
-#include <vector>
+#include <deque>
+#include <fstream>
 #include <memory>
+#include <chrono>
 
 namespace pipeline_sim {
 
-// Time integration schemes
-enum class TimeIntegrationScheme {
+/// Time integration schemes
+enum class TimeScheme {
     EXPLICIT_EULER,
     IMPLICIT_EULER,
     CRANK_NICOLSON,
     RUNGE_KUTTA_4
 };
 
-// Transient solver configuration
-struct TransientSolverConfig : public SolverConfig {
-    // Time stepping
-    Real time_step = 0.1;  // seconds
-    Real total_time = 100.0;  // seconds
-    Real min_time_step = 1e-6;
-    Real max_time_step = 1.0;
-    bool adaptive_time_stepping = true;
+/// Transient event types
+class TransientEvent {
+public:
+    virtual ~TransientEvent() = default;
     
-    // Integration scheme
-    TimeIntegrationScheme integration_scheme = TimeIntegrationScheme::CRANK_NICOLSON;
+    /// Check if event should trigger
+    virtual bool should_trigger(Real time) const = 0;
     
-    // Stability parameters
-    Real courant_number = 0.5;
-    Real diffusion_number = 0.5;
+    /// Apply event to network
+    virtual void apply(Network& network, Real time) = 0;
     
-    // Wave speed calculation
-    Real wave_speed = 1000.0;  // m/s (default water hammer wave speed)
-    bool calculate_wave_speed = true;
-    
-    // Output control
-    Real output_interval = 1.0;  // seconds
-    bool save_time_history = true;
+    /// Get event description
+    virtual std::string description() const = 0;
 };
 
-// Time history data
-struct TimeHistoryData {
-    std::vector<Real> time_points;
-    std::map<std::string, std::vector<Real>> node_pressure_history;
-    std::map<std::string, std::vector<Real>> pipe_flow_history;
-    std::map<std::string, std::vector<Real>> pipe_velocity_history;
-};
-
-// Transient event types
-enum class TransientEventType {
-    VALVE_CLOSURE,
-    VALVE_OPENING,
-    PUMP_START,
-    PUMP_STOP,
-    DEMAND_CHANGE,
-    PRESSURE_SURGE
-};
-
-// Transient event
-struct TransientEvent {
-    TransientEventType type;
-    std::string component_id;
-    Real start_time;
-    Real duration;
-    Real initial_value;
-    Real final_value;
+/// Valve closure event
+class ValveClosureEvent : public TransientEvent {
+public:
+    ValveClosureEvent(const std::string& valve_id, 
+                     Real start_time, 
+                     Real duration,
+                     Real final_opening = 0.0)
+        : valve_id_(valve_id), 
+          start_time_(start_time),
+          duration_(duration),
+          final_opening_(final_opening) {}
     
-    // Constructor
-    TransientEvent(TransientEventType t, const std::string& id, 
-                  Real start, Real dur, Real init, Real final)
-        : type(t), component_id(id), start_time(start), 
-          duration(dur), initial_value(init), final_value(final) {}
-          
-    // Get value at time t
-    Real value_at_time(Real t) const {
-        if (t < start_time) return initial_value;
-        if (t > start_time + duration) return final_value;
-        
-        Real fraction = (t - start_time) / duration;
-        return initial_value + fraction * (final_value - initial_value);
+    bool should_trigger(Real time) const override {
+        return time >= start_time_ && time <= start_time_ + duration_;
     }
-};
-
-// Transient solution results
-struct TransientResults : public SolutionResults {
-    TimeHistoryData time_history;
-    Real max_pressure_surge = 0.0;
-    Real min_pressure = 1e10;
-    std::string max_surge_location;
-    Real max_surge_time = 0.0;
     
-    // Water hammer analysis
-    Real theoretical_joukowsky_pressure = 0.0;
-    Real actual_max_water_hammer = 0.0;
-    Real damping_factor = 0.0;
+    void apply(Network& network, Real time) override;
+    
+    std::string description() const override {
+        return "Valve closure: " + valve_id_;
+    }
+    
+private:
+    std::string valve_id_;
+    Real start_time_;
+    Real duration_;
+    Real final_opening_;
 };
 
-// Transient solver class
+/// Pump trip event
+class PumpTripEvent : public TransientEvent {
+public:
+    PumpTripEvent(const std::string& pump_id, Real trip_time)
+        : pump_id_(pump_id), trip_time_(trip_time) {}
+    
+    bool should_trigger(Real time) const override {
+        return time >= trip_time_ && !triggered_;
+    }
+    
+    void apply(Network& network, Real time) override;
+    
+    std::string description() const override {
+        return "Pump trip: " + pump_id_;
+    }
+    
+private:
+    std::string pump_id_;
+    Real trip_time_;
+    mutable bool triggered_{false};
+};
+
+/// Transient solver with method of characteristics
 class TransientSolver : public Solver {
 public:
-    TransientSolver(Ptr<Network> network, const FluidProperties& fluid);
+    using Solver::Solver;
     
-    // Main solver interface
-    SolutionResults solve() override;
-    void reset() override;
+    /// Set time integration parameters
+    void set_time_step(Real dt) { time_step_ = dt; }
+    void set_simulation_time(Real t) { simulation_time_ = t; }
+    void set_time_scheme(TimeScheme scheme) { time_scheme_ = scheme; }
     
-    // Transient-specific methods
-    TransientResults solve_transient();
-    
-    // Event management
-    void add_event(const TransientEvent& event) { events_.push_back(event); }
-    void clear_events() { events_.clear(); }
-    const std::vector<TransientEvent>& events() const { return events_; }
-    
-    // Configuration
-    void set_transient_config(const TransientSolverConfig& config) { 
-        transient_config_ = config; 
-        // Also update base config
-        config_ = config;
+    /// Set wave speed calculation method
+    void set_wave_speed_method(const std::string& method) {
+        wave_speed_method_ = method;
     }
-    const TransientSolverConfig& transient_config() const { return transient_config_; }
+    
+    /// Add transient event
+    void add_event(std::unique_ptr<TransientEvent> event) {
+        events_.push_back(std::move(event));
+    }
+    
+    /// Set output parameters
+    void set_output_interval(Real interval) { output_interval_ = interval; }
+    void set_output_file(const std::string& filename) {
+        output_file_ = filename;
+    }
+    
+    /// Run transient simulation
+    SolutionResults solve() override;
+    
+    /// Get time history data
+    struct TimeHistory {
+        std::vector<Real> times;
+        std::map<std::string, std::vector<Real>> node_pressures;
+        std::map<std::string, std::vector<Real>> pipe_flows;
+    };
+    
+    const TimeHistory& get_time_history() const { return history_; }
+    
+    /// Reset solver state (NOT override - base class doesn't have this)
+    void reset() {
+        current_time_ = 0.0;
+        history_.times.clear();
+        history_.node_pressures.clear();
+        history_.pipe_flows.clear();
+        events_.clear();
+        solution_old_.setZero();
+        solution_old2_.setZero();
+    }
     
 protected:
-    // Time stepping methods
-    bool advance_time_step(Real dt, Real current_time);
-    Real calculate_stable_time_step(Real current_time);
+    void build_system_matrix(SparseMatrix& A, Vector& b) override;
+    void update_solution(const Vector& x) override;
+    bool check_convergence(const Vector& residual) override;
     
-    // Integration schemes
-    void explicit_euler_step(Real dt);
-    void implicit_euler_step(Real dt);
-    void crank_nicolson_step(Real dt);
-    void runge_kutta_4_step(Real dt);
+private:
+    Real time_step_{0.1};
+    Real simulation_time_{3600.0};
+    Real current_time_{0.0};
+    TimeScheme time_scheme_{TimeScheme::IMPLICIT_EULER};
+    std::string wave_speed_method_{"automatic"};
     
-    // System assembly methods
-    void build_mass_matrix(SparseMatrix& M);
-    void build_transient_system(SparseMatrix& A, Vector& b, Real dt, Real theta);
+    Real output_interval_{1.0};
+    std::string output_file_;
+    std::ofstream output_stream_;
     
-    // Wave speed calculations
-    Real calculate_wave_speed_wood(const Ptr<Pipe>& pipe);
-    Real calculate_wave_speed_wylie(const Ptr<Pipe>& pipe);
+    std::vector<std::unique_ptr<TransientEvent>> events_;
+    TimeHistory history_;
     
-    // Event handling
-    void apply_events(Real current_time);
-    void apply_valve_event(const TransientEvent& event, Real current_time);
-    void apply_pump_event(const TransientEvent& event, Real current_time);
-    void apply_demand_event(const TransientEvent& event, Real current_time);
+    // Previous time step solution
+    Vector solution_old_;
+    Vector solution_old2_;  // For higher-order schemes
     
-    // Solution storage
-    void store_solution_snapshot(Real time);
-    void initialize_solution_storage();
+    /// Calculate wave speed for each pipe
+    void calculate_wave_speeds();
+    std::map<std::string, Real> wave_speeds_;
     
-    // Analysis methods
-    void analyze_water_hammer();
-    Real calculate_joukowsky_pressure(const Ptr<Pipe>& pipe, Real velocity_change);
+    /// Apply method of characteristics
+    void apply_method_of_characteristics(SparseMatrix& A, Vector& b);
     
-    // Boundary conditions
-    void apply_transient_boundary_conditions(Real current_time);
-    void apply_reservoir_boundary(const Ptr<Node>& node);
-    void apply_valve_boundary(const Ptr<Node>& node, Real opening);
+    /// Check CFL condition
+    bool check_cfl_condition() const;
     
-    // Stability checks
-    bool check_courant_condition(Real dt);
-    bool check_diffusion_condition(Real dt);
+    /// Process events
+    void process_events();
     
-protected:
-    TransientSolverConfig transient_config_;
-    std::vector<TransientEvent> events_;
+    /// Save current state to history
+    void save_to_history();
     
-    // Solution storage
-    Vector current_pressures_;
-    Vector current_flows_;
-    Vector previous_pressures_;
-    Vector previous_flows_;
+    /// Write output file header
+    void write_output_header();
     
-    // Time history storage
-    TimeHistoryData history_;
+    /// Write current state to output
+    void write_output_state();
+};
+
+/// Line pack calculation
+class LinePackCalculator {
+public:
+    struct LinePackResult {
+        Real total_mass;        // kg
+        Real total_volume;      // m³
+        Real average_pressure;  // Pa
+        Real average_density;   // kg/m³
+        std::map<std::string, Real> pipe_masses;
+    };
     
-    // Steady-state solver for initialization
-    std::unique_ptr<SteadyStateSolver> steady_solver_;
+    static LinePackResult calculate(
+        const Network& network,
+        const SolutionResults& results,
+        const FluidProperties& fluid
+    );
+};
+
+/// Surge analysis
+class SurgeAnalyzer {
+public:
+    struct SurgeResult {
+        Real max_pressure;
+        Real min_pressure;
+        std::string max_location;
+        std::string min_location;
+        Real surge_pressure;
+        bool exceeds_mawp;
+    };
+    
+    static SurgeResult analyze(
+        const TransientSolver::TimeHistory& history,
+        const Network& network,
+        Real mawp  // Maximum allowable working pressure
+    );
 };
 
 } // namespace pipeline_sim
-
-#endif // PIPELINE_SIM_TRANSIENT_SOLVER_H
