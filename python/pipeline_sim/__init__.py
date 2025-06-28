@@ -1,30 +1,91 @@
-"""Pipeline-Sim: Next-generation petroleum pipeline simulation"""
+# AI_GENERATED: Pipeline-Sim Python API
+"""
+Pipeline-Sim: Next-generation petroleum pipeline simulation
+"""
 
 __version__ = "0.1.0"
 
-import importlib.util
 import os
+import sys
+import importlib.util
+from pathlib import Path
 
-# Load the _core.pyd with the correct module name
-_dir = os.path.dirname(os.path.abspath(__file__))
-_pyd = os.path.join(_dir, "_core.cp313-win_amd64.pyd")
+# Try to load the compiled extension
+_loaded = False
 
-spec = importlib.util.spec_from_file_location("pipeline_sim", _pyd)
-_mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(_mod)
+# Method 1: Try direct import (if installed properly)
+try:
+    from pipeline_sim import *
+    _loaded = True
+except ImportError:
+    pass
 
-# Import everything
-for name in dir(_mod):
-    if not name.startswith('_'):
-        globals()[name] = getattr(_mod, name)
+# Method 2: Try to load .pyd file directly
+if not _loaded:
+    # Look for .pyd file in various locations
+    possible_paths = [
+        Path(__file__).parent,  # Same directory as __init__.py
+        Path(__file__).parent.parent,  # Parent directory
+        Path(__file__).parent.parent.parent / "build" / "lib.win-amd64-cpython-313",  # Build directory
+    ]
+    
+    for base_path in possible_paths:
+        if not base_path.exists():
+            continue
+            
+        # Look for .pyd files
+        for pyd_file in base_path.glob("pipeline_sim*.pyd"):
+            try:
+                # Load the module from the .pyd file
+                spec = importlib.util.spec_from_file_location("pipeline_sim_core", pyd_file)
+                if spec and spec.loader:
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules["pipeline_sim_core"] = module
+                    spec.loader.exec_module(module)
+                    
+                    # Import all symbols
+                    for name in dir(module):
+                        if not name.startswith('_'):
+                            globals()[name] = getattr(module, name)
+                    
+                    _loaded = True
+                    break
+            except Exception as e:
+                continue
+        
+        if _loaded:
+            break
 
-# Clean up
-del importlib, os, spec, _mod, _dir, _pyd, name
+if not _loaded:
+    raise ImportError(
+        "Could not load Pipeline-Sim C++ extension. "
+        "Make sure it's properly built with: python setup_complete.py build_ext"
+    )
 
-# Import Python components
+# Python-only components (import after core is loaded)
 try:
     from .utils import load_network, save_results, plot_network
     from .correlations import BeggsBrill, HagedornBrown
     from .report import generate_report
 except ImportError:
+    # These might not exist yet
     pass
+
+# Define what's available
+__all__ = [
+    "Network",
+    "Node", 
+    "Pipe",
+    "NodeType",
+    "FluidProperties",
+    "Solver",
+    "SteadyStateSolver",
+    "SolutionResults",
+    "SolverConfig",
+    "get_version",
+]
+
+# Add version function if not available
+if 'get_version' not in globals():
+    def get_version():
+        return __version__
