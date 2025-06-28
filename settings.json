@@ -1,12 +1,17 @@
 {
+    "python.defaultInterpreterPath": "C:\\Python313\\python.exe",
     "python.analysis.extraPaths": [
-        "${workspaceFolder}/build/lib.win-amd64-cpython-313",
-        "${workspaceFolder}/python",
-        "${workspaceFolder}"
+        "${workspaceFolder}",
+        "C:\\Users\\KIMO STORE\\AppData\\Roaming\\Python\\Python313\\site-packages"
     ],
-    "python.analysis.stubPath": "${workspaceFolder}/stubs",
-    "python.analysis.reportMissingImports": "warning",
-    "python.linting.pylintArgs": [
-        "--extension-pkg-whitelist=pipeline_sim"
-    ]
+    "python.analysis.typeCheckingMode": "off",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.diagnosticSeverityOverrides": {
+        "reportMissingImports": "none",
+        "reportMissingModuleSource": "none"
+    },
+    "python.linting.enabled": false,
+    "files.associations": {
+        "*.pyi": "python"
+    }
 }

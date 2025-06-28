@@ -10,6 +10,11 @@
 #include <exception>
 #include <numeric>
 
+// Define M_PI for Windows compatibility
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 namespace pipeline_sim {
 
 // ===== Base Solver Implementation =====
@@ -192,6 +197,10 @@ bool SteadyStateSolver::solve_unified_formulation(int& iterations_performed, Rea
         Eigen::SparseLU<SparseMatrix> solver;
         solver.compute(J);
         
+        // Calculate damping factor for this iteration
+        Real damping_factor = calculate_adaptive_damping(config_.pressure_damping, iter, 
+                                                        final_residual, prev_residual);
+        
         if (solver.info() != Eigen::Success) {
             // Try BiCGSTAB if LU fails
             if (config_.verbose) {
@@ -207,15 +216,12 @@ bool SteadyStateSolver::solve_unified_formulation(int& iterations_performed, Rea
                 return false;
             }
             
-            x += calculate_adaptive_damping(config_.pressure_damping, iter, 
-                                          final_residual, prev_residual) * dx;
+            x += damping_factor * dx;
         } else {
             Vector dx = solver.solve(-F);
             
             // Apply adaptive damping
-            Real damping = calculate_adaptive_damping(config_.pressure_damping, iter,
-                                                     final_residual, prev_residual);
-            x += damping * dx;
+            x += damping_factor * dx;
         }
         
         // Enforce bounds
@@ -223,11 +229,10 @@ bool SteadyStateSolver::solve_unified_formulation(int& iterations_performed, Rea
         
         // Display progress
         if (config_.verbose && (iter < 5 || iter % 10 == 0)) {
-            Real max_change = (J * x + F - J * (x - solver.solve(-F))).cwiseAbs().maxCoeff();
             std::cout << "Iter " << std::setw(3) << iter 
                       << ": residual = " << std::scientific << std::setprecision(3) << final_residual
                       << ", max_residual = " << max_residual
-                      << ", damping = " << std::fixed << std::setprecision(2) << damping << std::endl;
+                      << ", damping = " << std::fixed << std::setprecision(2) << damping_factor << std::endl;
         }
         
         prev_residual = final_residual;
