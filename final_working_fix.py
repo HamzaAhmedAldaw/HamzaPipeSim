@@ -1,160 +1,127 @@
-#!/usr/bin/env python3
+# verify_and_rebuild.py
 """
-Final fix - Remove stub loader and test HamzaPipeSim
+Verify bindings.cpp was fixed and do a clean rebuild
 """
-
 import os
+import shutil
+import subprocess
 import sys
 
-print("HamzaPipeSim Final Fix")
-print("="*60)
-
-# Step 1: Remove ALL interfering files
-print("Step 1: Removing interfering files...")
-
-files_to_remove = [
-    r"C:\Users\KIMO STORE\miniconda3\Lib\site-packages\pipeline_sim.py",
-    r"C:\Users\KIMO STORE\miniconda3\Lib\site-packages\pipeline_sim.pyc",
-    r"C:\Users\KIMO STORE\miniconda3\Lib\site-packages\__pycache__\pipeline_sim.cpython-313.pyc"
-]
-
-for file_path in files_to_remove:
-    if os.path.exists(file_path):
-        try:
-            os.remove(file_path)
-            print(f"  ✓ Removed: {os.path.basename(file_path)}")
-        except Exception as e:
-            print(f"  ⚠ Could not remove {os.path.basename(file_path)}: {e}")
-
-# Step 2: Clear Python's import cache
-print("\nStep 2: Clearing Python import cache...")
-modules_to_clear = ['pipeline_sim', 'pipeline_sim.ml']
-for mod in modules_to_clear:
-    if mod in sys.modules:
-        del sys.modules[mod]
-        print(f"  ✓ Cleared {mod} from cache")
-
-# Step 3: Test direct import from egg
-print("\nStep 3: Testing import from egg installation...")
-
-egg_path = r"C:\Users\KIMO STORE\miniconda3\Lib\site-packages\pipeline_sim-0.1.0-py3.13-win-amd64.egg"
-
-# Add to path
-sys.path.insert(0, egg_path)
-
-try:
-    import pipeline_sim
-    print("✓ Import successful!")
+def verify_and_rebuild():
+    print("Verifying and Rebuilding HamzaPipeSim")
+    print("=" * 60)
     
-    # Test all core features
-    print("\nTesting core features:")
+    # Check bindings.cpp
+    bindings_path = r"C:\Users\KIMO STORE\HamzaPipeSim\python\src\bindings.cpp"
     
-    # 1. Network creation
-    net = pipeline_sim.Network()
-    print(f"  ✓ Created Network with {net.node_count()} nodes")
-    
-    # 2. Add nodes
-    source = net.add_node("Source", pipeline_sim.NodeType.SOURCE)
-    sink = net.add_node("Sink", pipeline_sim.NodeType.SINK)
-    print(f"  ✓ Added nodes: {source}, {sink}")
-    
-    # 3. Add pipe
-    pipe = net.add_pipe("TestPipe", source, sink, 1000.0, 0.2)
-    print(f"  ✓ Added pipe: {pipe}")
-    
-    # 4. Set boundary conditions
-    net.set_pressure(source, 50e5)  # 50 bar
-    net.set_flow_rate(sink, -0.1)   # 100 L/s
-    print("  ✓ Set boundary conditions")
-    
-    # 5. Create fluid
-    fluid = pipeline_sim.FluidProperties()
-    fluid.oil_density = 850.0
-    fluid.oil_viscosity = 0.002
-    print("  ✓ Created fluid properties")
-    
-    # 6. Solve
-    solver = pipeline_sim.SteadyStateSolver(net, fluid)
-    results = solver.solve()
-    
-    if results.converged:
-        print(f"  ✓ Simulation converged in {results.iterations} iterations!")
-        print(f"    Residual: {results.residual:.2e}")
+    print("1. Checking bindings.cpp...")
+    if os.path.exists(bindings_path):
+        with open(bindings_path, 'r', encoding='utf-8') as f:
+            content = f.read()
         
-        print("\n  Results:")
-        for node, pressure in results.node_pressures.items():
-            print(f"    {node}: {pressure/1e5:.1f} bar")
+        # Check if FlowCorrelation is registered before DataDrivenCorrelation
+        flow_pos = content.find('py::class_<FlowCorrelation')
+        data_pos = content.find('py::class_<DataDrivenCorrelation')
+        
+        if flow_pos > 0 and data_pos > 0:
+            if flow_pos < data_pos:
+                print("✓ Bindings are correctly ordered (FlowCorrelation before DataDrivenCorrelation)")
+            else:
+                print("✗ Bindings are NOT correctly ordered!")
+                return False
+        else:
+            print("✗ Could not find binding definitions")
+    else:
+        print(f"✗ bindings.cpp not found at: {bindings_path}")
+        return False
     
-    # Test other features
-    print("\nTesting additional features:")
+    # Clean build directory
+    build_dir = r"C:\Users\KIMO STORE\HamzaPipeSim\build"
     
-    # Correlations
-    if hasattr(pipeline_sim, 'BeggsBrill'):
-        print("  ✓ BeggsBrill correlation available")
+    print("\n2. Cleaning build directory...")
+    if os.path.exists(build_dir):
+        shutil.rmtree(build_dir, ignore_errors=True)
+        print("✓ Removed old build directory")
     
-    # Equipment
-    if hasattr(pipeline_sim, 'Pump'):
-        pump = pipeline_sim.Pump()
-        print("  ✓ Equipment models available")
+    # Rebuild
+    print("\n3. Rebuilding with fixed bindings...")
+    os.chdir(r"C:\Users\KIMO STORE\HamzaPipeSim")
     
-    # ML features
-    try:
-        from pipeline_sim.ml import FeatureExtractor
-        print("  ✓ ML features available")
-    except:
-        print("  ⚠ ML features not accessible (check if included in build)")
+    result = subprocess.run([sys.executable, "setup_complete.py", "build"], 
+                          capture_output=True, text=True)
     
-    print("\n" + "="*60)
-    print("🎉 SUCCESS! HamzaPipeSim is fully operational!")
-    print("="*60)
+    if result.returncode == 0:
+        print("✓ Build completed successfully")
+        
+        # Find the new .pyd
+        pyd_path = None
+        for root, dirs, files in os.walk(build_dir):
+            for file in files:
+                if file.endswith('.pyd'):
+                    pyd_path = os.path.join(root, file)
+                    print(f"✓ Created: {pyd_path}")
+                    print(f"  Size: {os.path.getsize(pyd_path) / 1024:.1f} KB")
+                    break
+        
+        if not pyd_path:
+            print("✗ No .pyd file found after build")
+            return False
+            
+    else:
+        print(f"✗ Build failed: {result.stderr}")
+        return False
     
-    # Create a permanent solution file
-    print("\nCreating permanent solution file...")
+    # Test the new .pyd directly
+    print("\n4. Testing the newly built .pyd...")
     
-    solution_content = f'''#!/usr/bin/env python3
-"""
-HamzaPipeSim Import Helper
-Include this at the beginning of your scripts
-"""
-
-import sys
-
-# Add egg to path for HamzaPipeSim
-_egg_path = r"{egg_path}"
-if _egg_path not in sys.path:
-    sys.path.insert(0, _egg_path)
-
-# Import pipeline_sim
-import pipeline_sim
-
-# Optional: Verify it loaded correctly
-if not hasattr(pipeline_sim, 'Network'):
-    raise ImportError("HamzaPipeSim did not load correctly")
-
-print("✓ HamzaPipeSim ready to use")
+    test_code = f'''
+import importlib.util
+spec = importlib.util.spec_from_file_location("pipeline_sim", r"{pyd_path}")
+module = importlib.util.module_from_spec(spec)
+try:
+    spec.loader.exec_module(module)
+    print("✓ Module loaded successfully")
+    if hasattr(module, 'Network'):
+        net = module.Network()
+        print(f"✓ Network class works! Created network with {{net.node_count()}} nodes")
+    else:
+        attrs = [a for a in dir(module) if not a.startswith('_')]
+        print(f"✗ Network not found. Available: {{attrs}}")
+except Exception as e:
+    print(f"✗ Load error: {{e}}")
 '''
     
-    with open("hamza_pipesim.py", 'w') as f:
-        f.write(solution_content)
+    result = subprocess.run([sys.executable, "-c", test_code], 
+                          capture_output=True, text=True)
+    print(result.stdout)
+    if result.stderr:
+        print(f"Error: {result.stderr}")
     
-    print("✓ Created hamza_pipesim.py")
-    print("\nIn your scripts, simply use:")
-    print("  import hamza_pipesim")
-    print("  import pipeline_sim")
-    print("\nOr add this line at the beginning:")
-    print(f'  sys.path.insert(0, r"{egg_path}")')
-    
-except Exception as e:
-    print(f"\n✗ Error: {e}")
-    import traceback
-    traceback.print_exc()
-    
-    print("\nTroubleshooting:")
-    print("1. Make sure the egg file exists at:")
-    print(f"   {egg_path}")
-    print("2. Try manually in Python:")
-    print("   >>> import sys")
-    print(f'   >>> sys.path.insert(0, r"{egg_path}")')
-    print("   >>> import pipeline_sim")
+    if "Network class works" in result.stdout:
+        print("\n5. Installing the fixed .pyd...")
+        
+        # Copy to installation
+        egg_path = r"C:\Users\KIMO STORE\miniconda3\Lib\site-packages\pipeline_sim-0.1.0-py3.13-win-amd64.egg"
+        dest_pyd = os.path.join(egg_path, "pipeline_sim.pyd")
+        
+        shutil.copy2(pyd_path, dest_pyd)
+        print(f"✓ Copied to: {dest_pyd}")
+        
+        # Also copy with tagged name
+        dest_tagged = os.path.join(egg_path, os.path.basename(pyd_path))
+        shutil.copy2(pyd_path, dest_tagged)
+        
+        print("\n✓ Installation complete!")
+        print("\nTo use HamzaPipeSim:")
+        print("  import sys")
+        print('  sys.path.insert(0, r"C:\\Users\\KIMO STORE\\miniconda3\\Lib\\site-packages\\pipeline_sim-0.1.0-py3.13-win-amd64.egg")')
+        print("  import pipeline_sim")
+        print("  net = pipeline_sim.Network()")
+        
+        return True
+    else:
+        print("\n✗ The build still has issues. Let's check what went wrong.")
+        return False
 
-print("\n" + "="*60)
+if __name__ == "__main__":
+    verify_and_rebuild()
