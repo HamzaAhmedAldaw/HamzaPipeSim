@@ -1,32 +1,52 @@
-﻿#pragma once
+// ===== COMPLETE FINAL SOLUTION =====
 
-#include "pipeline_sim/fluid_properties.h"
-#include "pipeline_sim/solver.h"
-#include "pipeline_sim/correlations.h"
-#include <deque>
+// FILE: core/include/pipeline_sim/ml_integration.h
+#pragma once
 
 #include "pipeline_sim/types.h"
-#include "pipeline_sim/network.h"
+#include "pipeline_sim/correlations.h"  // For FlowCorrelation base class
+
 #include <vector>
 #include <memory>
+#include <functional>
+#include <deque>
+#include <map>
+#include <string>
 
 namespace pipeline_sim {
+
+// Forward declarations
+class Network;
+class Node;
+class Pipe;
+struct FluidProperties;
+enum class NodeType;
+
+// Define SolutionResults here to avoid circular dependency
+struct SolutionResults {
+    bool converged{false};
+    int iterations{0};
+    Real residual{0.0};
+    Real computation_time{0.0};
+    
+    std::map<std::string, Real> node_pressures;
+    std::map<std::string, Real> node_temperatures;
+    std::map<std::string, Real> pipe_flow_rates;
+    std::map<std::string, Real> pipe_pressure_drops;
+};
+
 namespace ml {
 
 /// Feature extractor for ML models
 class FeatureExtractor {
 public:
-    /// Extract features from network state
     static Vector extract_features(
         const Network& network,
         const SolutionResults& results,
         const FluidProperties& fluid
     );
     
-    /// Get feature names
     static std::vector<std::string> get_feature_names();
-    
-    /// Normalize features
     static void normalize_features(Vector& features);
 };
 
@@ -34,14 +54,8 @@ public:
 class MLModel {
 public:
     virtual ~MLModel() = default;
-    
-    /// Load model from file
     virtual void load(const std::string& filename) = 0;
-    
-    /// Make prediction
     virtual Vector predict(const Vector& features) = 0;
-    
-    /// Get model info
     virtual std::string info() const = 0;
 };
 
@@ -52,7 +66,6 @@ public:
     Vector predict(const Vector& features) override;
     std::string info() const override { return "Flow Pattern Predictor"; }
     
-    /// Predict flow pattern for a pipe
     FlowPattern predict_pattern(
         const Pipe& pipe,
         const FluidProperties& fluid,
@@ -60,25 +73,22 @@ public:
     );
     
 private:
-    // Simple neural network implementation
     struct NeuralNetwork {
         std::vector<Matrix> weights;
         std::vector<Vector> biases;
-        
         Vector forward(const Vector& input);
     };
     
     std::unique_ptr<NeuralNetwork> network_;
 };
 
-/// Anomaly detector for pipeline monitoring
+/// Anomaly detector
 class AnomalyDetector : public MLModel {
 public:
     void load(const std::string& filename) override;
     Vector predict(const Vector& features) override;
     std::string info() const override { return "Anomaly Detector"; }
     
-    /// Detect anomalies in current state
     struct AnomalyResult {
         bool is_anomaly;
         Real anomaly_score;
@@ -91,7 +101,6 @@ public:
     );
     
 private:
-    // Isolation Forest implementation
     struct IsolationTree {
         struct Node {
             int feature_index{-1};
@@ -108,7 +117,7 @@ private:
     std::vector<IsolationTree> forest_;
 };
 
-/// Optimization solver using ML
+/// ML Optimizer - Modified to not use SteadyStateSolver directly
 class MLOptimizer {
 public:
     struct OptimizationObjective {
@@ -124,13 +133,12 @@ public:
     };
     
     struct OptimizationConstraints {
-        Real min_pressure{1e5};      // Pa
-        Real max_pressure{100e5};    // Pa
-        Real max_velocity{10.0};     // m/s
+        Real min_pressure{1e5};
+        Real max_pressure{100e5};
+        Real max_velocity{10.0};
         std::map<std::string, Real> node_flow_demands;
     };
     
-    /// Optimize network operation
     struct OptimizationResult {
         bool success;
         Real objective_value;
@@ -146,14 +154,18 @@ public:
         const OptimizationConstraints& constraints
     );
     
+    // Add a solver callback to avoid direct dependency
+    using SolverCallback = std::function<SolutionResults(Network&, const FluidProperties&)>;
+    void set_solver_callback(SolverCallback callback) { solver_callback_ = callback; }
+    
 private:
-    /// Genetic algorithm implementation
     struct Individual {
-        Vector genes;  // Control variables
+        Vector genes;
         Real fitness;
     };
     
     std::vector<Individual> population_;
+    SolverCallback solver_callback_;
     
     void initialize_population(size_t size);
     void evaluate_fitness(
@@ -166,16 +178,14 @@ private:
     void mutation();
 };
 
-/// Data-driven correlation model
+/// Data-driven correlation
 class DataDrivenCorrelation : public FlowCorrelation {
 public:
-    /// Train model from historical data
     void train(
         const std::vector<Vector>& features,
         const std::vector<Real>& pressure_drops
     );
     
-    /// Save/load trained model
     void save_model(const std::string& filename) const;
     void load_model(const std::string& filename);
     
@@ -190,12 +200,11 @@ public:
     std::string name() const override { return "Data-Driven Model"; }
     
 private:
-    // Random Forest implementation
     struct DecisionTree {
         struct Node {
             int feature_index{-1};
             Real threshold{0.0};
-            Real value{0.0};  // For leaf nodes
+            Real value{0.0};
             std::unique_ptr<Node> left;
             std::unique_ptr<Node> right;
             
@@ -210,23 +219,20 @@ private:
     Vector feature_importance_;
 };
 
-/// Pipeline digital twin
+/// Digital Twin
 class DigitalTwin {
 public:
-    /// Initialize twin with physical network
     void initialize(
         const Network& network,
         const FluidProperties& fluid
     );
     
-    /// Update twin with real-time data
     void update_with_measurements(
         const std::map<std::string, Real>& pressure_measurements,
         const std::map<std::string, Real>& flow_measurements,
         Real timestamp
     );
     
-    /// State estimation using Kalman filter
     struct EstimatedState {
         std::map<std::string, Real> node_pressures;
         std::map<std::string, Real> pipe_flows;
@@ -234,14 +240,11 @@ public:
     };
     
     EstimatedState estimate_state();
-    
-    /// Predict future state
     EstimatedState predict_future(Real time_horizon);
     
-    /// Detect discrepancies
     struct Discrepancy {
         std::string location;
-        std::string type;  // "leak", "blockage", "sensor_fault"
+        std::string type;
         Real severity;
         Real confidence;
     };
@@ -250,19 +253,16 @@ public:
     
 private:
     Ptr<Network> network_;
-    FluidProperties fluid_;
+    Ptr<FluidProperties> fluid_;
     
-    // Kalman filter state
     Vector state_estimate_;
     Matrix covariance_matrix_;
     Matrix process_noise_;
     Matrix measurement_noise_;
     
-    // Historical data
     std::deque<EstimatedState> state_history_;
     std::deque<Real> time_history_;
     
-    // ML models
     std::unique_ptr<AnomalyDetector> anomaly_detector_;
     std::unique_ptr<FlowPatternPredictor> pattern_predictor_;
 };
