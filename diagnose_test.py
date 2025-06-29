@@ -1,157 +1,204 @@
 #!/usr/bin/env python3
 """
-Diagnose why pressure boundary conditions aren't being recognized
+Minimal test to verify the solver works at all
 """
 
 import pipeline_sim as ps
+import time
 
-def diagnose_pressure_bc():
-    print("DIAGNOSING PRESSURE BOUNDARY CONDITIONS")
-    print("="*70)
+def test_minimal():
+    print("MINIMAL SOLVER TEST")
+    print("="*50)
     
-    # Create simple network
+    # Create the simplest possible network
     network = ps.Network()
     
-    # Create two nodes
-    inlet = network.add_node("INLET", ps.NodeType.SOURCE)
-    outlet = network.add_node("OUTLET", ps.NodeType.SINK)
+    inlet = network.add_node("IN", ps.NodeType.SOURCE)
+    outlet = network.add_node("OUT", ps.NodeType.SINK)
     
-    # Create pipe
-    pipe = network.add_pipe("PIPE", inlet, outlet, 1000.0, 0.3)
+    # Short pipe with large diameter (easy to solve)
+    pipe = network.add_pipe("PIPE", inlet, outlet, 100.0, 0.5)  # 100m, 0.5m diameter
+    pipe.set_roughness(0.00005)
     
-    print(f"\nNetwork created: {network.node_count()} nodes, {network.pipe_count()} pipes")
+    # Small pressure difference
+    inlet.set_pressure_bc(2e5)    # 2 bar
+    outlet.set_pressure_bc(1.9e5)  # 1.9 bar
     
-    # Check initial state
-    print("\nInitial node states:")
-    print(f"  Inlet pressure: {inlet.pressure/1e5:.2f} bar")
-    print(f"  Inlet has_pressure_bc: {inlet.has_pressure_bc()}")
-    print(f"  Outlet pressure: {outlet.pressure/1e5:.2f} bar")
-    print(f"  Outlet has_pressure_bc: {outlet.has_pressure_bc()}")
-    
-    # Check network pressure specs
-    print(f"\nNetwork pressure_specs: {dict(network.pressure_specs())}")
-    
-    # Try setting pressure using network method
-    print("\nSetting pressures via network.set_pressure()...")
-    network.set_pressure(inlet, 10e5)   # 10 bar
-    network.set_pressure(outlet, 9e5)   # 9 bar
-    
-    # Check after network.set_pressure
-    print("\nAfter network.set_pressure():")
-    print(f"  Inlet pressure: {inlet.pressure/1e5:.2f} bar")
-    print(f"  Inlet has_pressure_bc: {inlet.has_pressure_bc()}")
-    print(f"  Outlet pressure: {outlet.pressure/1e5:.2f} bar")
-    print(f"  Outlet has_pressure_bc: {outlet.has_pressure_bc()}")
-    print(f"  Network pressure_specs: {dict(network.pressure_specs())}")
-    
-    # Try setting pressure BC directly on node
-    print("\nTrying to set pressure BC directly on nodes...")
-    inlet.set_pressure_bc(10e5)
-    outlet.set_pressure_bc(9e5)
-    
-    print("\nAfter node.set_pressure_bc():")
-    print(f"  Inlet has_pressure_bc: {inlet.has_pressure_bc()}")
-    print(f"  Inlet pressure_bc: {inlet.pressure_bc()/1e5:.2f} bar")
-    print(f"  Outlet has_pressure_bc: {outlet.has_pressure_bc()}")
-    print(f"  Outlet pressure_bc: {outlet.pressure_bc()/1e5:.2f} bar")
-    
-    # Create fluid
+    # Simple fluid
     fluid = ps.FluidProperties()
-    fluid.oil_density = 850.0
-    fluid.oil_viscosity = 0.002
     fluid.oil_fraction = 1.0
-    fluid.gas_fraction = 0.0
     fluid.water_fraction = 0.0
+    fluid.gas_fraction = 0.0
+    fluid.oil_density = 1000.0
+    fluid.oil_viscosity = 0.001
     
-    # Try to solve
-    print("\nCreating solver and attempting to solve...")
-    solver = ps.SteadyStateSolver(network, fluid)
-    solver.config.verbose = False
+    print("\nSetup:")
+    print(f"  Pipe: {pipe.length}m long, {pipe.diameter}m diameter")
+    print(f"  Pressure drop: 0.1 bar")
+    print(f"  Fluid: water-like")
     
-    results = solver.solve()
-    
-    print(f"\nSolver results:")
-    print(f"  Converged: {results.converged}")
-    print(f"  Iterations: {results.iterations}")
-    print(f"  Reason: {results.convergence_reason}")
-    
-    return results
-
-
-def test_direct_bc_setting():
-    """Test setting BCs directly on nodes"""
-    print("\n" + "="*70)
-    print("TEST: SETTING BCs DIRECTLY ON NODES")
-    print("="*70)
-    
-    network = ps.Network()
-    
-    # Create simple 3-node network
-    source = network.add_node("SOURCE", ps.NodeType.SOURCE)
-    junction = network.add_node("JUNCTION", ps.NodeType.JUNCTION)
-    sink = network.add_node("SINK", ps.NodeType.SINK)
-    
-    # Pipes
-    pipe1 = network.add_pipe("PIPE1", source, junction, 1000, 0.3)
-    pipe2 = network.add_pipe("PIPE2", junction, sink, 1000, 0.3)
-    
-    # Set BCs directly
-    print("\nSetting boundary conditions directly on nodes...")
-    source.set_pressure_bc(10e5)  # 10 bar
-    sink.set_pressure_bc(5e5)      # 5 bar
-    
-    print(f"Source has BC: {source.has_pressure_bc()}, value: {source.pressure_bc()/1e5:.1f} bar")
-    print(f"Sink has BC: {sink.has_pressure_bc()}, value: {sink.pressure_bc()/1e5:.1f} bar")
-    print(f"Junction has BC: {junction.has_pressure_bc()}")
-    
-    # Fluid
-    fluid = ps.FluidProperties()
-    fluid.oil_density = 850.0
-    fluid.oil_viscosity = 0.002
-    fluid.oil_fraction = 1.0
-    
-    # Solve
+    # Create solver with minimal settings
     solver = ps.SteadyStateSolver(network, fluid)
     solver.config.verbose = True
-    solver.config.max_iterations = 50
+    solver.config.max_iterations = 10  # Very low limit
+    solver.config.tolerance = 1e-4     # Relaxed tolerance
     
-    print("\nSolving with direct BC setting...")
-    results = solver.solve()
+    print("\nSolving...")
+    start_time = time.time()
     
-    print(f"\nResults:")
-    print(f"  Converged: {results.converged}")
-    print(f"  Iterations: {results.iterations}")
-    
-    if results.converged:
-        print(f"  Junction pressure: {results.node_pressures.get('JUNCTION', 0)/1e5:.2f} bar")
-        print(f"  Flow rate: {results.pipe_flow_rates.get('PIPE1', 0):.4f} m³/s")
-    
-    return results
+    try:
+        results = solver.solve()
+        elapsed = time.time() - start_time
+        
+        print(f"\nSolution time: {elapsed:.3f} seconds")
+        
+        if results.converged:
+            print("✓ CONVERGED!")
+            print(f"  Iterations: {results.iterations}")
+            print(f"  Flow rate: {results.pipe_flow_rates['PIPE']:.4f} m³/s")
+            print(f"  Velocity: {results.pipe_velocities['PIPE']:.2f} m/s")
+            return True
+        else:
+            print("✗ FAILED TO CONVERGE")
+            print(f"  Reason: {results.convergence_reason}")
+            print(f"  Iterations: {results.iterations}")
+            print(f"  Residual: {results.residual}")
+            return False
+            
+    except Exception as e:
+        elapsed = time.time() - start_time
+        print(f"\n✗ ERROR after {elapsed:.3f} seconds: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
 
 
-def main():
-    print("PRESSURE BOUNDARY CONDITION DIAGNOSTIC")
-    print("Version:", ps.__version__)
-    print("")
+def test_increasing_difficulty():
+    """Test with increasing difficulty"""
+    print("\n\nTEST WITH INCREASING DIFFICULTY")
+    print("="*50)
     
-    # Test 1: Diagnose BC setting
-    result1 = diagnose_pressure_bc()
+    test_cases = [
+        # (length, diameter, dp_bar, description)
+        (100, 0.5, 0.1, "Easy - short, wide pipe"),
+        (1000, 0.3, 0.5, "Medium - longer, narrower"),
+        (304.8, 0.1541, 1.0, "Crane-like dimensions"),
+        (304.8, 0.1541, 3.0, "Higher pressure drop"),
+    ]
     
-    # Test 2: Try direct BC setting
-    result2 = test_direct_bc_setting()
+    for length, diameter, dp_bar, description in test_cases:
+        print(f"\nTest: {description}")
+        print(f"  L={length}m, D={diameter}m, ΔP={dp_bar} bar")
+        
+        network = ps.Network()
+        inlet = network.add_node("IN", ps.NodeType.SOURCE)
+        outlet = network.add_node("OUT", ps.NodeType.SINK)
+        pipe = network.add_pipe("PIPE", inlet, outlet, length, diameter)
+        pipe.set_roughness(0.000045)
+        
+        inlet.set_pressure_bc(10e5)
+        outlet.set_pressure_bc((10 - dp_bar) * 1e5)
+        
+        fluid = ps.FluidProperties()
+        fluid.oil_fraction = 1.0
+        fluid.water_fraction = 0.0
+        fluid.gas_fraction = 0.0
+        fluid.oil_density = 1000.0
+        fluid.oil_viscosity = 0.001
+        
+        solver = ps.SteadyStateSolver(network, fluid)
+        solver.config.verbose = False
+        solver.config.max_iterations = 50
+        solver.config.tolerance = 1e-5
+        
+        start_time = time.time()
+        
+        try:
+            results = solver.solve()
+            elapsed = time.time() - start_time
+            
+            if results.converged:
+                Q = results.pipe_flow_rates['PIPE']
+                v = results.pipe_velocities['PIPE']
+                Re = results.pipe_reynolds_numbers['PIPE']
+                print(f"  ✓ Converged in {results.iterations} iterations ({elapsed:.3f}s)")
+                print(f"    Q = {Q:.4f} m³/s, v = {v:.2f} m/s, Re = {Re:.0f}")
+            else:
+                print(f"  ✗ Failed after {results.iterations} iterations ({elapsed:.3f}s)")
+                print(f"    Reason: {results.convergence_reason}")
+                
+        except Exception as e:
+            elapsed = time.time() - start_time
+            print(f"  ✗ Error after {elapsed:.3f}s: {e}")
+
+
+def test_crane_direct():
+    """Test Crane case directly without binary search"""
+    print("\n\nCRANE CASE - DIRECT TEST")
+    print("="*50)
     
-    print("\n" + "="*70)
-    print("DIAGNOSTIC SUMMARY")
-    print("="*70)
+    network = ps.Network()
+    inlet = network.add_node("IN", ps.NodeType.SOURCE)
+    outlet = network.add_node("OUT", ps.NodeType.SINK)
     
-    if result2 and result2.iterations > 0:
-        print("✓ Solver works when BCs are set directly on nodes")
-        print("✗ Issue: network.set_pressure() is not properly setting BCs")
-        print("\nWORKAROUND: Use node.set_pressure_bc() instead of network.set_pressure()")
-    else:
-        print("✗ Solver still not working even with direct BC setting")
-        print("  There may be additional issues beyond BC setting")
+    # Crane dimensions
+    pipe = network.add_pipe("PIPE", inlet, outlet, 304.8, 0.1541)
+    pipe.set_roughness(0.000045)
+    
+    # Try with 44 psi pressure drop (expected value)
+    dp_pa = 44 * 6894.76  # psi to Pa
+    inlet.set_pressure_bc(10e5)
+    outlet.set_pressure_bc(10e5 - dp_pa)
+    
+    fluid = ps.FluidProperties()
+    fluid.oil_fraction = 1.0
+    fluid.water_fraction = 0.0
+    fluid.gas_fraction = 0.0
+    fluid.oil_density = 999.0
+    fluid.oil_viscosity = 0.00112
+    
+    print(f"\nDirect test with 44 psi pressure drop:")
+    print(f"  Inlet: {10} bar")
+    print(f"  Outlet: {(10e5 - dp_pa)/1e5:.2f} bar")
+    
+    solver = ps.SteadyStateSolver(network, fluid)
+    solver.config.verbose = True
+    solver.config.max_iterations = 30
+    solver.config.tolerance = 1e-5
+    solver.config.use_line_search = True
+    solver.config.relaxation_factor = 0.8
+    
+    print("\nSolving...")
+    
+    try:
+        results = solver.solve()
+        
+        if results.converged:
+            Q = results.pipe_flow_rates['PIPE']
+            Q_gpm = Q * 15850.3
+            print(f"\n✓ Converged!")
+            print(f"  Flow rate: {Q:.4f} m³/s ({Q_gpm:.0f} gpm)")
+            print(f"  Target was: 1000 gpm")
+            print(f"  Difference: {abs(Q_gpm - 1000):.0f} gpm")
+        else:
+            print(f"\n✗ Failed: {results.convergence_reason}")
+            
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
 
 
 if __name__ == "__main__":
-    main()
+    print("Pipeline-Sim Solver Diagnostic")
+    print(f"Version: {ps.__version__}")
+    print("")
+    
+    # Run tests
+    success = test_minimal()
+    
+    if success:
+        test_increasing_difficulty()
+        test_crane_direct()
+    else:
+        print("\n⚠ Basic test failed - check solver configuration")
+    
+    print("\nDiagnostic complete")
