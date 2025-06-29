@@ -1,159 +1,44 @@
 ﻿from setuptools import setup, Extension, find_packages
 from pybind11.setup_helpers import Pybind11Extension, build_ext
 import pybind11
-import os
-import platform
 
-# Determine platform-specific settings
-is_windows = platform.system() == 'Windows'
-is_linux = platform.system() == 'Linux'
-is_macos = platform.system() == 'Darwin'
-
-# Common include directories
-include_dirs = [
-    'core/include',
-    pybind11.get_include(),
-    pybind11.get_include(user=True)
-]
-
-# Common source files
-sources = [
-    'python/src/bindings.cpp',
-    'core/src/correlations.cpp',
-    'core/src/equipment.cpp',
-    'core/src/fluid_properties.cpp',
-    'core/src/ml_integration.cpp',
-    'core/src/network.cpp',
-    'core/src/node.cpp',  # Added node.cpp
-    'core/src/pipe.cpp',
-    'core/src/solver.cpp',
-    # # # 'core/src/transient_solver.cpp',  # Temporarily disabled # Temporarily disabled
-            'core/src/transient_solver_stub.cpp',  # Stub implementation # Temporarily disabled
-            'core/src/transient_solver_stub.cpp',  # Stub implementation
-    # Note: utils.cpp might be missing - comment out if it doesn't exist
-    # 'core/src/utils.cpp',
-]
-
-# Platform-specific settings
-if is_windows:
-    # Windows with vcpkg
-    vcpkg_path = r'C:\vcpkg\installed\x64-windows'
-    include_dirs.extend([
-        os.path.join(vcpkg_path, 'include'),
-        os.path.join(vcpkg_path, 'include', 'eigen3')
-    ])
-    
-    extra_compile_args = ['/std:c++17', '/EHsc', '/bigobj']
-    extra_link_args = []
-    libraries = []
-    library_dirs = [os.path.join(vcpkg_path, 'lib')]
-    
-elif is_linux:
-    # Linux
-    include_dirs.extend([
-        '/usr/include/eigen3',
-        '/usr/local/include/eigen3'
-    ])
-    
-    extra_compile_args = ['-std=c++17', '-O3', '-fPIC']
-    extra_link_args = ['-std=c++17']
-    libraries = ['pthread']
-    library_dirs = []
-    
-elif is_macos:
-    # macOS
-    include_dirs.extend([
-        '/usr/local/include/eigen3',
-        '/opt/homebrew/include/eigen3'
-    ])
-    
-    extra_compile_args = ['-std=c++17', '-O3', '-stdlib=libc++']
-    extra_link_args = ['-stdlib=libc++']
-    libraries = []
-    library_dirs = []
-
-# Define the extension module
+# Simple extension - only include what we need
 ext_modules = [
     Pybind11Extension(
         "pipeline_sim",
-        sources,
-        include_dirs=include_dirs,
-        libraries=libraries,
-        library_dirs=library_dirs,
+        sources=[
+            # Only the essential files
+            "core/src/node.cpp",
+            "core/src/pipe.cpp",
+            "core/src/network.cpp",
+            "core/src/fluid_properties.cpp",
+            "python/src/bindings.cpp",
+        ],
+        include_dirs=[
+            "core/include",
+            pybind11.get_include(),
+            pybind11.get_include(user=True),
+            r"C:\vcpkg\installed\x64-windows\include",
+            r"C:\vcpkg\installed\x64-windows\include\eigen3",
+        ],
+        define_macros=[("NOMINMAX", None)],
         language='c++',
-        extra_compile_args=extra_compile_args,
-        extra_link_args=extra_link_args,
         cxx_std=17,
     ),
 ]
 
-# Read README for long description
-def read_readme():
-    """Read README with encoding detection"""
-    readme_path = "README.md"
-    
-    # Try different encodings
-    encodings = ['utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be', 'utf-8', 'latin-1']
-    
-    for encoding in encodings:
-        try:
-            with open(readme_path, "r", encoding=encoding) as fh:
-                return fh.read()
-        except (UnicodeDecodeError, FileNotFoundError):
-            continue
-    
-    # If all encodings fail, return a default description
-    return "Advanced pipeline simulation framework with ML integration"
+# Windows compiler settings
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        for ext in ext_modules:
+            ext.extra_compile_args = ["/EHsc", "/bigobj", "/std:c++17"]
 
-long_description = read_readme()
-
-# Setup configuration
-setup(
-    name="pipeline_sim",
-    version="0.1.0",
-    author="Hamza Ahmed",
-    author_email="your.email@example.com",
-    description="Advanced pipeline simulation framework with ML integration",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/HamzaAhmedAldaw/HamzaPipeSim",
-    packages=find_packages(where="python"),
-    package_dir={"": "python"},
-    ext_modules=ext_modules,
-    cmdclass={"build_ext": build_ext},
-    classifiers=[
-        "Development Status :: 3 - Alpha",
-        "Intended Audience :: Science/Research",
-        "Topic :: Scientific/Engineering",
-        "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-        "Programming Language :: Python :: 3.13",
-        "Programming Language :: C++",
-    ],
-    python_requires=">=3.8",
-    install_requires=[
-        "numpy>=1.19.0",
-        "matplotlib>=3.3.0",
-        "pandas>=1.1.0",
-        "scipy>=1.5.0",
-        "scikit-learn>=0.23.0",
-    ],
-    extras_require={
-        "dev": [
-            "pytest>=6.0",
-            "pytest-cov>=2.0",
-            "black>=20.8b1",
-            "flake8>=3.8.0",
-            "mypy>=0.910",
-        ],
-        "viz": [
-            "plotly>=5.0.0",
-            "dash>=2.0.0",
-        ],
-    },
-)
+    setup(
+        name="pipeline-sim",
+        version="0.1.0",
+        ext_modules=ext_modules,
+        cmdclass={"build_ext": build_ext},
+        zip_safe=False,
+        python_requires=">=3.7",
+    )
