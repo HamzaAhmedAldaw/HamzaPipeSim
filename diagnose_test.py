@@ -1,165 +1,157 @@
 #!/usr/bin/env python3
 """
-Diagnostic test to check solver functionality
+Diagnose why pressure boundary conditions aren't being recognized
 """
 
-import sys
-import time
-import pipeline_sim
-import numpy as np
+import pipeline_sim as ps
 
-print("=== Pipeline-Sim Diagnostic Test ===\n")
-
-# 1. Check what's available
-print("1. Checking available classes and methods:")
-print(f"   Network: {hasattr(pipeline_sim, 'Network')}")
-print(f"   FluidProperties: {hasattr(pipeline_sim, 'FluidProperties')}")
-print(f"   SteadyStateSolver: {hasattr(pipeline_sim, 'SteadyStateSolver')}")
-print(f"   SolverConfig: {hasattr(pipeline_sim, 'SolverConfig')}")
-print(f"   constants: {hasattr(pipeline_sim, 'constants')}")
-
-# 2. Create a simple test network
-print("\n2. Creating simple test network:")
-network = pipeline_sim.Network()
-print("   ✓ Network created")
-
-# Create two nodes
-n1 = network.add_node("N1", pipeline_sim.NodeType.SOURCE)
-n2 = network.add_node("N2", pipeline_sim.NodeType.SINK)
-print("   ✓ Nodes created")
-
-# Create a pipe
-pipe = network.add_pipe("P1", n1, n2, 1000.0, 0.3)  # 1000m, 0.3m diameter
-print("   ✓ Pipe created")
-
-# Set boundary conditions
-network.set_pressure(n1, 200e5)  # 200 bar
-network.set_pressure(n2, 100e5)  # 100 bar
-print("   ✓ Boundary conditions set")
-
-# 3. Create fluid properties
-print("\n3. Creating fluid properties:")
-fluid = pipeline_sim.FluidProperties()
-fluid.oil_fraction = 1.0
-fluid.water_fraction = 0.0
-fluid.gas_fraction = 0.0
-fluid.oil_density = 850.0
-fluid.oil_viscosity = 0.001
-print(f"   Density: {fluid.mixture_density()} kg/m³")
-print(f"   Viscosity: {fluid.mixture_viscosity()*1000} cP")
-
-# 4. Create and configure solver
-print("\n4. Creating solver:")
-solver = pipeline_sim.SteadyStateSolver(network, fluid)
-print("   ✓ Solver created")
-
-# Try to configure if possible
-if hasattr(solver, 'config'):
-    print("   ✓ Config available")
-    config = solver.config
-    config.verbose = True
-    config.tolerance = 1e-6
-    config.max_iterations = 10  # Low number for testing
-    print(f"   Tolerance: {config.tolerance}")
-    print(f"   Max iterations: {config.max_iterations}")
-else:
-    print("   ✗ Config NOT available")
-
-# 5. Solve with timeout
-print("\n5. Solving simple network:")
-print("   Starting solve...")
-
-start_time = time.time()
-try:
-    # Create a simple timeout mechanism
-    import threading
+def diagnose_pressure_bc():
+    print("DIAGNOSING PRESSURE BOUNDARY CONDITIONS")
+    print("="*70)
     
-    result = None
-    exception = None
+    # Create simple network
+    network = ps.Network()
     
-    def solve_thread():
-        global result, exception
-        try:
-            result = solver.solve()
-        except Exception as e:
-            exception = e
+    # Create two nodes
+    inlet = network.add_node("INLET", ps.NodeType.SOURCE)
+    outlet = network.add_node("OUTLET", ps.NodeType.SINK)
     
-    thread = threading.Thread(target=solve_thread)
-    thread.daemon = True
-    thread.start()
+    # Create pipe
+    pipe = network.add_pipe("PIPE", inlet, outlet, 1000.0, 0.3)
     
-    # Wait for up to 5 seconds
-    thread.join(timeout=5.0)
+    print(f"\nNetwork created: {network.node_count()} nodes, {network.pipe_count()} pipes")
     
-    if thread.is_alive():
-        print("   ✗ Solver timeout after 5 seconds!")
-        print("   The solver appears to be stuck.")
-        
-        # Try to get more info
-        print("\n6. Network details:")
-        print(f"   Nodes: {len(network.nodes())}")
-        print(f"   Pipes: {len(network.pipes())}")
-        
-        # Check if we can access pressure/flow specs
-        if hasattr(network, 'pressure_specs'):
-            print(f"   Pressure BCs: {len(network.pressure_specs())}")
-        if hasattr(network, 'flow_specs'):
-            print(f"   Flow BCs: {len(network.flow_specs())}")
-            
-    elif exception:
-        print(f"   ✗ Solver failed with error: {exception}")
-    elif result:
-        elapsed = time.time() - start_time
-        print(f"   ✓ Solved in {elapsed:.3f} seconds")
-        print(f"   Converged: {result.converged}")
-        print(f"   Iterations: {result.iterations}")
-        
-        # Check results
-        if result.converged:
-            print("\n7. Solution results:")
-            for node_id, pressure in result.node_pressures.items():
-                print(f"   Node {node_id}: {pressure/1e5:.1f} bar")
-            
-            for pipe_id, flow in result.pipe_flow_rates.items():
-                print(f"   Pipe {pipe_id}: {flow*3600:.1f} m³/h")
-                
-            # Calculate expected flow manually
-            dp = 100e5  # 100 bar pressure drop
-            L = 1000    # m
-            D = 0.3     # m
-            mu = 0.001  # Pa.s
-            rho = 850   # kg/m³
-            
-            # Simplified calculation assuming laminar flow
-            Q_expected = np.pi * D**4 * dp / (128 * mu * L)
-            print(f"\n   Expected flow (laminar): {Q_expected*3600:.1f} m³/h")
-            
-except Exception as e:
-    print(f"   ✗ Unexpected error: {e}")
-    import traceback
-    traceback.print_exc()
+    # Check initial state
+    print("\nInitial node states:")
+    print(f"  Inlet pressure: {inlet.pressure/1e5:.2f} bar")
+    print(f"  Inlet has_pressure_bc: {inlet.has_pressure_bc()}")
+    print(f"  Outlet pressure: {outlet.pressure/1e5:.2f} bar")
+    print(f"  Outlet has_pressure_bc: {outlet.has_pressure_bc()}")
+    
+    # Check network pressure specs
+    print(f"\nNetwork pressure_specs: {dict(network.pressure_specs())}")
+    
+    # Try setting pressure using network method
+    print("\nSetting pressures via network.set_pressure()...")
+    network.set_pressure(inlet, 10e5)   # 10 bar
+    network.set_pressure(outlet, 9e5)   # 9 bar
+    
+    # Check after network.set_pressure
+    print("\nAfter network.set_pressure():")
+    print(f"  Inlet pressure: {inlet.pressure/1e5:.2f} bar")
+    print(f"  Inlet has_pressure_bc: {inlet.has_pressure_bc()}")
+    print(f"  Outlet pressure: {outlet.pressure/1e5:.2f} bar")
+    print(f"  Outlet has_pressure_bc: {outlet.has_pressure_bc()}")
+    print(f"  Network pressure_specs: {dict(network.pressure_specs())}")
+    
+    # Try setting pressure BC directly on node
+    print("\nTrying to set pressure BC directly on nodes...")
+    inlet.set_pressure_bc(10e5)
+    outlet.set_pressure_bc(9e5)
+    
+    print("\nAfter node.set_pressure_bc():")
+    print(f"  Inlet has_pressure_bc: {inlet.has_pressure_bc()}")
+    print(f"  Inlet pressure_bc: {inlet.pressure_bc()/1e5:.2f} bar")
+    print(f"  Outlet has_pressure_bc: {outlet.has_pressure_bc()}")
+    print(f"  Outlet pressure_bc: {outlet.pressure_bc()/1e5:.2f} bar")
+    
+    # Create fluid
+    fluid = ps.FluidProperties()
+    fluid.oil_density = 850.0
+    fluid.oil_viscosity = 0.002
+    fluid.oil_fraction = 1.0
+    fluid.gas_fraction = 0.0
+    fluid.water_fraction = 0.0
+    
+    # Try to solve
+    print("\nCreating solver and attempting to solve...")
+    solver = ps.SteadyStateSolver(network, fluid)
+    solver.config.verbose = False
+    
+    results = solver.solve()
+    
+    print(f"\nSolver results:")
+    print(f"  Converged: {results.converged}")
+    print(f"  Iterations: {results.iterations}")
+    print(f"  Reason: {results.convergence_reason}")
+    
+    return results
 
-print("\n=== Diagnostic Complete ===")
 
-# Additional checks
-print("\n8. Additional checks:")
+def test_direct_bc_setting():
+    """Test setting BCs directly on nodes"""
+    print("\n" + "="*70)
+    print("TEST: SETTING BCs DIRECTLY ON NODES")
+    print("="*70)
+    
+    network = ps.Network()
+    
+    # Create simple 3-node network
+    source = network.add_node("SOURCE", ps.NodeType.SOURCE)
+    junction = network.add_node("JUNCTION", ps.NodeType.JUNCTION)
+    sink = network.add_node("SINK", ps.NodeType.SINK)
+    
+    # Pipes
+    pipe1 = network.add_pipe("PIPE1", source, junction, 1000, 0.3)
+    pipe2 = network.add_pipe("PIPE2", junction, sink, 1000, 0.3)
+    
+    # Set BCs directly
+    print("\nSetting boundary conditions directly on nodes...")
+    source.set_pressure_bc(10e5)  # 10 bar
+    sink.set_pressure_bc(5e5)      # 5 bar
+    
+    print(f"Source has BC: {source.has_pressure_bc()}, value: {source.pressure_bc()/1e5:.1f} bar")
+    print(f"Sink has BC: {sink.has_pressure_bc()}, value: {sink.pressure_bc()/1e5:.1f} bar")
+    print(f"Junction has BC: {junction.has_pressure_bc()}")
+    
+    # Fluid
+    fluid = ps.FluidProperties()
+    fluid.oil_density = 850.0
+    fluid.oil_viscosity = 0.002
+    fluid.oil_fraction = 1.0
+    
+    # Solve
+    solver = ps.SteadyStateSolver(network, fluid)
+    solver.config.verbose = True
+    solver.config.max_iterations = 50
+    
+    print("\nSolving with direct BC setting...")
+    results = solver.solve()
+    
+    print(f"\nResults:")
+    print(f"  Converged: {results.converged}")
+    print(f"  Iterations: {results.iterations}")
+    
+    if results.converged:
+        print(f"  Junction pressure: {results.node_pressures.get('JUNCTION', 0)/1e5:.2f} bar")
+        print(f"  Flow rate: {results.pipe_flow_rates.get('PIPE1', 0):.4f} m³/s")
+    
+    return results
 
-# Check if the module has proper version
-if hasattr(pipeline_sim, '__version__'):
-    print(f"   Version: {pipeline_sim.__version__}")
-else:
-    print("   Version: Not available")
 
-# Check for get_version function
-if hasattr(pipeline_sim, 'get_version'):
-    try:
-        version = pipeline_sim.get_version()
-        print(f"   get_version(): {version}")
-    except:
-        print("   get_version(): Failed to call")
+def main():
+    print("PRESSURE BOUNDARY CONDITION DIAGNOSTIC")
+    print("Version:", ps.__version__)
+    print("")
+    
+    # Test 1: Diagnose BC setting
+    result1 = diagnose_pressure_bc()
+    
+    # Test 2: Try direct BC setting
+    result2 = test_direct_bc_setting()
+    
+    print("\n" + "="*70)
+    print("DIAGNOSTIC SUMMARY")
+    print("="*70)
+    
+    if result2 and result2.iterations > 0:
+        print("✓ Solver works when BCs are set directly on nodes")
+        print("✗ Issue: network.set_pressure() is not properly setting BCs")
+        print("\nWORKAROUND: Use node.set_pressure_bc() instead of network.set_pressure()")
+    else:
+        print("✗ Solver still not working even with direct BC setting")
+        print("  There may be additional issues beyond BC setting")
 
-print("\nIf the solver is stuck, it likely means:")
-print("1. The matrix assembly has issues (singular matrix)")
-print("2. The boundary condition application is incorrect")
-print("3. The solver configuration is not being applied")
-print("4. There's an infinite loop in the solver")
+
+if __name__ == "__main__":
+    main()

@@ -1,79 +1,46 @@
-# ===== setup.py (root) =====
-"""
-Pipeline-Sim Setup Script
+from setuptools import setup, Extension, find_packages
+from pybind11.setup_helpers import Pybind11Extension, build_ext
+import pybind11
 
-AI_GENERATED: Package configuration for distribution
-"""
-from setuptools import setup, find_packages
-import os
-
-# Read README
-try:
-    with open("README.md", "r", encoding="utf-8", errors='ignore') as fh:
-        long_description = fh.read()
-except:
-    long_description = "HamzaPipeSim - Pipeline Network Simulation Package"
-
-
-# Read requirements
-with open("requirements.txt", "r", encoding="utf-8") as fh:
-    requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
-
-setup(
-    name="pipeline-sim",
-    version="0.1.0",
-    author="Pipeline-Sim Contributors",
-    author_email="",
-    description="Next-generation petroleum pipeline simulation system",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/pipeline-sim/pipeline-sim",
-    project_urls={
-        "Bug Tracker": "https://github.com/pipeline-sim/pipeline-sim/issues",
-        "Documentation": "https://pipeline-sim.readthedocs.io",
-        "Source Code": "https://github.com/pipeline-sim/pipeline-sim",
-    },
-    classifiers=[
-        "Development Status :: 3 - Alpha",
-        "Intended Audience :: Science/Research",
-        "Topic :: Scientific/Engineering",
-        "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.8",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: C++",
-    ],
-    packages=find_packages(where="python"),
-    package_dir={"": "python"},
-    python_requires=">=3.8",
-    install_requires=requirements,
-    extras_require={
-        "dev": [
-            "pytest>=6.0",
-            "pytest-cov>=2.0",
-            "black>=21.0",
-            "flake8>=3.9",
-            "mypy>=0.9",
-            "sphinx>=4.0",
-            "sphinx-rtd-theme>=1.0",
+# Simple extension - only include what we need
+ext_modules = [
+    Pybind11Extension(
+        "pipeline_sim",
+        sources=[
+            # Core implementation files
+            "core/src/node.cpp",
+            "core/src/pipe.cpp",
+            "core/src/network.cpp",
+            "core/src/fluid_properties.cpp",
+            "core/src/solver.cpp",              # <-- THIS WAS MISSING!
+            # Python bindings
+            "python/src/bindings.cpp",
         ],
-        "ml": [
-            "scikit-learn>=0.24",
-            "tensorflow>=2.6",
-            "torch>=1.9",
+        include_dirs=[
+            "core/include",
+            pybind11.get_include(),
+            pybind11.get_include(user=True),
+            r"C:\vcpkg\installed\x64-windows\include",
+            r"C:\vcpkg\installed\x64-windows\include\eigen3",
         ],
-        "gui": [
-            "matplotlib>=3.3",
-            "networkx>=2.6",
-        ],
-    },
-    entry_points={
-        "console_scripts": [
-            "pipeline-sim=tools.cli.pipeline_sim_cli:cli",
-            "pipeline-sim-gui=tools.gui.pipeline_sim_gui:main",
-        ],
-    },
-    include_package_data=True,
-    zip_safe=False,
-)
+        define_macros=[("NOMINMAX", None)],
+        language='c++',
+        cxx_std=17,
+    ),
+]
+
+# Windows compiler settings
+if __name__ == "__main__":
+    import sys
+    if sys.platform == "win32":
+        for ext in ext_modules:
+            ext.extra_compile_args = ["/EHsc", "/bigobj", "/std:c++17"]
+    
+    setup(
+        name="pipeline-sim",
+        version="0.1.0",
+        ext_modules=ext_modules,
+        cmdclass={"build_ext": build_ext},
+        zip_safe=False,
+        python_requires=">=3.7",
+    )
