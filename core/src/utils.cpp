@@ -42,3 +42,4 @@ Real convert_kelvin_to_celsius(Real kelvin) {
 }
 
 } // namespace pipeline_sim
+

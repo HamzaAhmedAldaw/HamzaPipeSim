@@ -7,8 +7,6 @@
 #include "pipeline_sim/solver.h"
 #include <deque>
 #include <fstream>
-#include <memory>
-#include <chrono>
 
 namespace pipeline_sim {
 
@@ -87,9 +85,10 @@ private:
 };
 
 /// Transient solver with method of characteristics
-class TransientSolver : public Solver {
+class TransientSolver : public AdvancedSolver {
 public:
-    using Solver::Solver;
+    TransientSolver(std::shared_ptr<Network> network, const FluidProperties& fluid)
+        : AdvancedSolver(network, fluid, SolverType::TRANSIENT) {}
     
     /// Set time integration parameters
     void set_time_step(Real dt) { time_step_ = dt; }
@@ -113,7 +112,7 @@ public:
     }
     
     /// Run transient simulation
-    SolutionResults solve() override;
+    AdvancedSolutionResults solve() override;
     
     /// Get time history data
     struct TimeHistory {
@@ -124,19 +123,9 @@ public:
     
     const TimeHistory& get_time_history() const { return history_; }
     
-    /// Reset solver state (NOT override - base class doesn't have this)
-    void reset() {
-        current_time_ = 0.0;
-        history_.times.clear();
-        history_.node_pressures.clear();
-        history_.pipe_flows.clear();
-        events_.clear();
-        solution_old_.setZero();
-        solution_old2_.setZero();
-    }
-    
 protected:
     void build_system_matrix(SparseMatrix& A, Vector& b) override;
+    void apply_boundary_conditions(SparseMatrix& A, Vector& b) override;
     void update_solution(const Vector& x) override;
     bool check_convergence(const Vector& residual) override;
     
@@ -194,7 +183,7 @@ public:
     
     static LinePackResult calculate(
         const Network& network,
-        const SolutionResults& results,
+        const AdvancedSolutionResults& results,
         const FluidProperties& fluid
     );
 };

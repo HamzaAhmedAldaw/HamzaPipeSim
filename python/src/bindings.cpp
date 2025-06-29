@@ -136,3 +136,4 @@ PYBIND11_MODULE(pipeline_sim, m) {
     // Module functions
     m.def("get_version", &get_version);
 }
+

@@ -1,4 +1,4 @@
-﻿// ===== include/pipeline_sim/equipment.h =====
+// ===== include/pipeline_sim/equipment.h =====
 #pragma once
 
 #include "pipeline_sim/fluid_properties.h"

@@ -1,4 +1,4 @@
-﻿/// AI_GENERATED: Network topology management header
+/// AI_GENERATED: Network topology management header
 /// Generated on: 2025-06-27
 #pragma once
 

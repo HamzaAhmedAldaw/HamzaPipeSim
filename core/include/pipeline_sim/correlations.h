@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "pipeline_sim/types.h"
 #include "pipeline_sim/fluid_properties.h"

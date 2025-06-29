@@ -1,4 +1,4 @@
-﻿/*
+/*
 ==================================================================================
 HAMZA PIPESIM - ADVANCED SOLVER SYSTEM V2.0
 ==================================================================================
@@ -210,7 +210,7 @@ public:
                    const FluidProperties& fluid,
                    SolverType type = SolverType::STEADY_STATE);
     
-    virtual ~AdvancedSolver() = default;
+    virtual ~AdvancedSolver();
     
     // Main solve interface
     virtual AdvancedSolutionResults solve() = 0;
@@ -299,6 +299,9 @@ protected:
     void update_solution(const Vector& x) override;
     bool check_convergence(const Vector& residual) override;
     
+    // Add the missing method
+    Real calculate_multiphase_pressure_drop(const Ptr<Pipe>& pipe);
+    
 private:
     // Multiphase flow specific implementations
     void compute_flow_patterns();
@@ -319,6 +322,7 @@ private:
     Matrix compute_interfacial_friction_matrix();
     Vector handle_terrain_induced_slugging();
     
+    // ADD THESE MEMBER VARIABLES
     std::string flow_correlation_;
     std::string eos_model_;
     bool slip_modeling_enabled_;
@@ -475,6 +479,8 @@ public:
     DigitalTwinSolver(std::shared_ptr<Network> network, 
                      const FluidProperties& fluid);
     
+    ~DigitalTwinSolver(); // Add explicit destructor
+    
     AdvancedSolutionResults solve() override;
     
     // Digital twin specific methods
@@ -535,6 +541,8 @@ public:
     MLEnhancedSolver(std::shared_ptr<Network> network, 
                     const FluidProperties& fluid);
     
+    ~MLEnhancedSolver(); // Add explicit destructor
+    
     AdvancedSolutionResults solve() override;
     
     // ML specific methods
@@ -577,6 +585,9 @@ private:
     bool neural_acceleration_enabled_;
     bool reinforcement_learning_enabled_;
 };
+
+// Forward declaration - TransientSolver is defined in transient_solver.h
+class TransientSolver;
 
 // ================================================================================
 // FACTORY FUNCTIONS

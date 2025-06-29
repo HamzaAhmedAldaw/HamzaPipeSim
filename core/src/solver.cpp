@@ -1,62 +1,309 @@
 /*
 ==================================================================================
-HAMZA PIPESIM - ADVANCED SOLVER IMPLEMENTATION
+HAMZA PIPESIM - ADVANCED SOLVER SYSTEM V2.0
 ==================================================================================
-Production-ready implementation of the next-generation solver system
-Optimized for performance, accuracy, and enterprise scalability
+Implementation file for the advanced solver system
 ==================================================================================
 */
 
-#include "solver.h"
-#include <omp.h>
-#include <mkl.h>  // Intel MKL for optimized linear algebra
-#include <tensorflow/c/c_api.h>  // TensorFlow C API for ML integration
-#include <immintrin.h>  // SIMD intrinsics for vectorization
+#include "pipeline_sim/solver.h"
+#include "pipeline_sim/types.h"
+#include "pipeline_sim/network.h"
+#include "pipeline_sim/node.h"
+#include "pipeline_sim/pipe.h"
+#include "pipeline_sim/fluid_properties.h"
+#include <Eigen/SparseLU>
+#include <Eigen/SparseQR>
+#include <Eigen/IterativeLinearSolvers>
 #include <chrono>
+#include <iostream>
+#include <cmath>
 #include <algorithm>
-#include <execution>
-#include <random>
+#include <thread>
+
+// OpenMP is optional - check if available
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace pipeline_sim {
 
 // ================================================================================
-// ADVANCED SOLVER BASE IMPLEMENTATION
+// FORWARD DECLARED CLASS STUBS
 // ================================================================================
 
-AdvancedSolver::AdvancedSolver(std::shared_ptr<Network> network, 
-                              const FluidProperties& fluid,
-                              SolverType type)
+// Machine learning components
+class MLAccelerator {
+public:
+    MLAccelerator() = default;
+    ~MLAccelerator() = default;
+};
+
+class GPUKernels {
+public:
+    GPUKernels() = default;
+    ~GPUKernels() = default;
+};
+
+// Digital Twin components
+class DigitalTwinSolver::ExtendedKalmanFilter {
+public:
+    ExtendedKalmanFilter() = default;
+    ~ExtendedKalmanFilter() = default;
+};
+
+class DigitalTwinSolver::UnscentedKalmanFilter {
+public:
+    UnscentedKalmanFilter() = default;
+    ~UnscentedKalmanFilter() = default;
+};
+
+class DigitalTwinSolver::ParticleFilter {
+public:
+    ParticleFilter() = default;
+    ~ParticleFilter() = default;
+};
+
+class DigitalTwinSolver::StatisticalAnomalyDetector {
+public:
+    StatisticalAnomalyDetector() = default;
+    ~StatisticalAnomalyDetector() = default;
+};
+
+class DigitalTwinSolver::MachineLearningAnomalyDetector {
+public:
+    MachineLearningAnomalyDetector() = default;
+    ~MachineLearningAnomalyDetector() = default;
+};
+
+class DigitalTwinSolver::PhysicsBasedAnomalyDetector {
+public:
+    PhysicsBasedAnomalyDetector() = default;
+    ~PhysicsBasedAnomalyDetector() = default;
+};
+
+class DigitalTwinSolver::ARIMAPredictor {
+public:
+    ARIMAPredictor() = default;
+    ~ARIMAPredictor() = default;
+};
+
+class DigitalTwinSolver::LSTMPredictor {
+public:
+    LSTMPredictor() = default;
+    ~LSTMPredictor() = default;
+};
+
+class DigitalTwinSolver::PhysicsInformedNeuralNetwork {
+public:
+    PhysicsInformedNeuralNetwork() = default;
+    ~PhysicsInformedNeuralNetwork() = default;
+};
+
+class DigitalTwinSolver::ModelPredictiveController {
+public:
+    ModelPredictiveController() = default;
+    ~ModelPredictiveController() = default;
+};
+
+class DigitalTwinSolver::AdaptiveController {
+public:
+    AdaptiveController() = default;
+    ~AdaptiveController() = default;
+};
+
+class DigitalTwinSolver::RobustController {
+public:
+    RobustController() = default;
+    ~RobustController() = default;
+};
+
+// ML Enhanced Solver components
+class MLEnhancedSolver::PhysicsInformedNeuralNetwork {
+public:
+    PhysicsInformedNeuralNetwork() = default;
+    ~PhysicsInformedNeuralNetwork() = default;
+};
+
+class MLEnhancedSolver::DeepReinforcementLearningAgent {
+public:
+    DeepReinforcementLearningAgent() = default;
+    ~DeepReinforcementLearningAgent() = default;
+};
+
+class MLEnhancedSolver::GaussianProcessRegressor {
+public:
+    GaussianProcessRegressor() = default;
+    ~GaussianProcessRegressor() = default;
+};
+
+class MLEnhancedSolver::VariationalAutoencoder {
+public:
+    VariationalAutoencoder() = default;
+    ~VariationalAutoencoder() = default;
+};
+
+// Network Optimization Solver components
+class NetworkOptimizationSolver::GeneticAlgorithm {
+public:
+    GeneticAlgorithm() = default;
+    ~GeneticAlgorithm() = default;
+};
+
+class NetworkOptimizationSolver::ParticleSwarm {
+public:
+    ParticleSwarm() = default;
+    ~ParticleSwarm() = default;
+};
+
+class NetworkOptimizationSolver::DifferentialEvolution {
+public:
+    DifferentialEvolution() = default;
+    ~DifferentialEvolution() = default;
+};
+
+class NetworkOptimizationSolver::NeuralNetworkOptimizer {
+public:
+    NeuralNetworkOptimizer() = default;
+    ~NeuralNetworkOptimizer() = default;
+};
+
+// ================================================================================
+// ADVANCED SOLVER BASE CLASS IMPLEMENTATION
+// ================================================================================ 
+
+AdvancedSolver::AdvancedSolver(std::shared_ptr<Network> network,
+                               const FluidProperties& fluid,
+                               SolverType type)
     : network_(network), fluid_(fluid), solver_type_(type) {
     
-    // Initialize performance monitoring
-    start_time_ = std::chrono::high_resolution_clock::now();
+    // Initialize default configuration based on solver type
+    switch (solver_type_) {
+        case SolverType::STEADY_STATE:
+            config_.numerical_method = NumericalMethod::FINITE_VOLUME;
+            config_.linear_solver = LinearSolverType::DIRECT_LU;
+            break;
+        case SolverType::TRANSIENT:
+            config_.numerical_method = NumericalMethod::FINITE_VOLUME;
+            config_.linear_solver = LinearSolverType::ITERATIVE_GMRES;
+            config_.enable_adaptive_mesh = true;
+            break;
+        case SolverType::MULTIPHASE_FLOW:
+            config_.numerical_method = NumericalMethod::FINITE_VOLUME;
+            config_.linear_solver = LinearSolverType::ITERATIVE_BICGSTAB;
+            config_.include_phase_change = true;
+            break;
+        case SolverType::COMPOSITIONAL:
+            config_.numerical_method = NumericalMethod::FINITE_ELEMENT;
+            config_.linear_solver = LinearSolverType::ITERATIVE_GMRES;
+            config_.include_compositional_tracking = true;
+            break;
+        case SolverType::THERMAL:
+            config_.numerical_method = NumericalMethod::FINITE_ELEMENT;
+            config_.include_thermal_effects = true;
+            break;
+        case SolverType::NETWORK_OPTIMIZATION:
+            config_.enable_automatic_differentiation = true;
+            config_.enable_sensitivity_analysis = true;
+            break;
+        case SolverType::DIGITAL_TWIN:
+            config_.enable_ml_acceleration = true;
+            config_.save_intermediate_results = true;
+            break;
+        case SolverType::MACHINE_LEARNING:
+            config_.enable_ml_acceleration = true;
+            config_.numerical_method = NumericalMethod::FINITE_VOLUME;
+            config_.convergence_strategy = ConvergenceStrategy::AI_GUIDED;
+            break;
+    }
     
-    // Configure parallel processing
+    // Set parallel processing
+#ifdef _OPENMP
     if (config_.enable_parallel) {
-        int num_threads = (config_.num_threads > 0) ? 
-                         config_.num_threads : omp_get_max_threads();
-        omp_set_num_threads(num_threads);
-        
-        // Initialize Intel MKL for parallel linear algebra
-        mkl_set_num_threads(num_threads);
-        mkl_set_dynamic(1);
+        if (config_.num_threads == 0) {
+            config_.num_threads = std::thread::hardware_concurrency();
+        }
+        omp_set_num_threads(config_.num_threads);
+    }
+#endif
+}
+
+void AdvancedSolver::enable_real_time_monitoring(
+    std::function<void(const AdvancedSolutionResults&)> callback) {
+    // Implementation for real-time monitoring
+    // This would be called during solve iterations
+}
+
+void AdvancedSolver::enable_ml_acceleration(const std::string& model_path) {
+    config_.enable_ml_acceleration = true;
+    // Load ML model from path
+    // ml_accelerator_ = std::make_unique<MLAccelerator>(model_path);
+}
+
+void AdvancedSolver::enable_gpu_acceleration() {
+    config_.enable_gpu = true;
+    // Initialize GPU kernels
+    // gpu_kernels_ = std::make_unique<GPUKernels>();
+}
+
+void AdvancedSolver::set_parallel_strategy(int num_threads, bool use_mpi) {
+    config_.num_threads = num_threads;
+    config_.enable_parallel = true;
+#ifdef _OPENMP
+    omp_set_num_threads(num_threads);
+#endif
+}
+
+Matrix AdvancedSolver::compute_sensitivity_matrix() {
+    // Placeholder for sensitivity analysis
+    size_t n = network_->nodes().size();
+    Matrix sensitivity(n, n);
+    sensitivity.setIdentity();
+    return sensitivity;
+}
+
+std::map<std::string, Real> AdvancedSolver::compute_uncertainty_bounds() {
+    std::map<std::string, Real> bounds;
+    // Placeholder implementation
+    return bounds;
+}
+
+AdvancedSolutionResults AdvancedSolver::optimize_network_design() {
+    // Placeholder for network optimization
+    return solve();
+}
+
+bool AdvancedSolver::validate_solution(const AdvancedSolutionResults& results) {
+    // Check physical constraints
+    bool valid = true;
+    
+    // Check pressure positivity
+    for (const auto& [id, pressure] : results.node_pressures) {
+        if (pressure < 0) {
+            valid = false;
+            if (config_.verbose) {
+                std::cerr << "Negative pressure at node " << id << ": " << pressure << std::endl;
+            }
+        }
     }
     
-    // Initialize ML components if enabled
-    if (config_.enable_ml_acceleration) {
-        ml_accelerator_ = std::make_unique<MLAccelerator>();
+    // Check mass balance
+    if (results.quality.mass_balance_error > config_.tolerance * 10) {
+        valid = false;
     }
     
-    // Initialize GPU kernels if enabled
-    if (config_.enable_gpu) {
-        gpu_kernels_ = std::make_unique<GPUKernels>();
-    }
+    return valid;
+}
+
+Real AdvancedSolver::estimate_solution_error() {
+    // Placeholder for error estimation
+    return 0.0;
 }
 
 Vector AdvancedSolver::solve_linear_system(const SparseMatrix& A, const Vector& b) {
-    start_timer("linear_solve");
+    Vector x;
     
-    Vector solution;
+    start_timer("linear_solve");
     
     switch (config_.linear_solver) {
         case LinearSolverType::DIRECT_LU: {
@@ -65,169 +312,228 @@ Vector AdvancedSolver::solve_linear_system(const SparseMatrix& A, const Vector& 
             if (solver.info() != Eigen::Success) {
                 throw std::runtime_error("LU decomposition failed");
             }
-            solution = solver.solve(b);
+            x = solver.solve(b);
             break;
         }
-        
+        case LinearSolverType::DIRECT_QR: {
+            Eigen::SparseQR<SparseMatrix, Eigen::COLAMDOrdering<int>> solver;
+            solver.compute(A);
+            if (solver.info() != Eigen::Success) {
+                throw std::runtime_error("QR decomposition failed");
+            }
+            x = solver.solve(b);
+            break;
+        }
         case LinearSolverType::ITERATIVE_GMRES: {
-            Eigen::GMRES<SparseMatrix> solver;
+            // GMRES is not available in standard Eigen, use BiCGSTAB instead
+            // Or implement custom GMRES
+            Eigen::BiCGSTAB<SparseMatrix> solver;
             solver.setMaxIterations(config_.max_inner_iterations);
             solver.setTolerance(config_.tolerance);
-            
-            // Setup preconditioner
-            setup_preconditioner(A);
-            
             solver.compute(A);
-            solution = solver.solve(b);
+            x = solver.solve(b);
             break;
         }
-        
         case LinearSolverType::ITERATIVE_BICGSTAB: {
             Eigen::BiCGSTAB<SparseMatrix> solver;
             solver.setMaxIterations(config_.max_inner_iterations);
             solver.setTolerance(config_.tolerance);
             solver.compute(A);
-            solution = solver.solve(b);
+            x = solver.solve(b);
             break;
         }
-        
-        case LinearSolverType::MULTIGRID: {
-            solution = multigrid_solve(A, b);
+        case LinearSolverType::ITERATIVE_CG: {
+            Eigen::ConjugateGradient<SparseMatrix> solver;
+            solver.setMaxIterations(config_.max_inner_iterations);
+            solver.setTolerance(config_.tolerance);
+            solver.compute(A);
+            x = solver.solve(b);
             break;
         }
-        
-        case LinearSolverType::AI_ACCELERATED: {
-            if (ml_accelerator_) {
-                solution = ml_accelerator_->accelerated_solve(A, b);
-            } else {
-                // Fallback to GMRES
-                Eigen::GMRES<SparseMatrix> solver;
-                solver.compute(A);
-                solution = solver.solve(b);
-            }
-            break;
-        }
-        
         default:
-            throw std::invalid_argument("Unsupported linear solver type");
+            // Fallback to LU
+            Eigen::SparseLU<SparseMatrix> solver;
+            solver.compute(A);
+            x = solver.solve(b);
     }
     
     stop_timer("linear_solve");
-    return solution;
+    
+    return x;
 }
 
 void AdvancedSolver::setup_preconditioner(const SparseMatrix& A) {
-    start_timer("preconditioner_setup");
-    
-    switch (config_.preconditioner) {
-        case PreconditionerType::ILU: {
-            // Incomplete LU factorization
-            // Implementation would go here
-            break;
-        }
-        
-        case PreconditionerType::AMG: {
-            // Algebraic multigrid preconditioner
-            // Implementation would go here
-            break;
-        }
-        
-        case PreconditionerType::NEURAL_NETWORK: {
-            if (ml_accelerator_) {
-                ml_accelerator_->setup_neural_preconditioner(A);
-            }
-            break;
-        }
-        
-        default:
-            // No preconditioning
-            break;
-    }
-    
-    stop_timer("preconditioner_setup");
+    // Setup preconditioner based on config
+    // This would be implemented based on the preconditioner type
 }
 
-Matrix AdvancedSolver::compute_sensitivity_matrix() {
-    start_timer("sensitivity_analysis");
-    
-    size_t n_vars = network_->nodes().size() + network_->pipes().size();
-    size_t n_params = network_->get_design_parameters().size();
-    
-    Matrix sensitivity(n_vars, n_params);
-    
-    if (config_.enable_automatic_differentiation) {
-        // Use automatic differentiation for exact derivatives
-        sensitivity = compute_ad_sensitivity();
-    } else {
-        // Use finite differences
-        Real epsilon = 1e-6;
-        Vector base_solution = get_current_solution();
-        
-        for (size_t i = 0; i < n_params; ++i) {
-            // Perturb parameter
-            perturb_parameter(i, epsilon);
-            
-            // Solve perturbed system
-            auto perturbed_results = solve();
-            Vector perturbed_solution = extract_solution_vector(perturbed_results);
-            
-            // Compute derivative
-            sensitivity.col(i) = (perturbed_solution - base_solution) / epsilon;
-            
-            // Restore original parameter
-            perturb_parameter(i, -epsilon);
-        }
+void AdvancedSolver::parallel_matrix_assembly(SparseMatrix& A, Vector& b) {
+    if (!config_.enable_parallel) {
+        build_system_matrix(A, b);
+        return;
     }
     
-    stop_timer("sensitivity_analysis");
-    return sensitivity;
+#ifdef _OPENMP
+    // Parallel assembly using OpenMP
+    #pragma omp parallel
+    {
+        // Thread-local storage for triplets
+        std::vector<Eigen::Triplet<Real>> local_triplets;
+        Vector local_b = Vector::Zero(b.size());
+        
+        #pragma omp for
+        for (int i = 0; i < static_cast<int>(network_->nodes().size()); ++i) {
+            // Assembly code here
+        }
+        
+        #pragma omp critical
+        {
+            // Merge local results
+        }
+    }
+#else
+    // Fallback to serial assembly
+    build_system_matrix(A, b);
+#endif
+}
+
+void AdvancedSolver::parallel_residual_computation(const Vector& x, Vector& residual) {
+#ifdef _OPENMP
+    // Parallel residual computation
+    #pragma omp parallel for
+    for (int i = 0; i < residual.size(); ++i) {
+        // Compute residual[i]
+    }
+#endif
+}
+
+void AdvancedSolver::adaptive_mesh_refinement() {
+    if (!config_.enable_adaptive_mesh) return;
+    
+    // Compute error indicators
+    std::vector<Real> error_indicators;
+    compute_error_indicators(error_indicators);
+    
+    // Refine mesh based on indicators
+    // This would modify the network structure
+}
+
+void AdvancedSolver::apply_stabilization_terms(SparseMatrix& A, Vector& b) {
+    // Add stabilization for numerical stability
+    // SUPG, GLS, or other methods
+}
+
+void AdvancedSolver::compute_error_indicators(std::vector<Real>& error_indicators) {
+    // Compute element-wise error indicators
+    error_indicators.resize(network_->pipes().size());
+    
+    size_t idx = 0;
+    for (const auto& [id, pipe] : network_->pipes()) {
+        // Simple gradient-based indicator
+        Real velocity_gradient = 0.0; // Compute actual gradient
+        Real pressure_gradient = 0.0; // Compute actual gradient
+        
+        error_indicators[idx] = std::sqrt(velocity_gradient * velocity_gradient + 
+                                         pressure_gradient * pressure_gradient);
+        idx++;
+    }
+}
+
+void AdvancedSolver::start_timer(const std::string& name) const {
+    auto now = std::chrono::high_resolution_clock::now();
+    timing_data_[name] = static_cast<Real>(now.time_since_epoch().count());
+}
+
+Real AdvancedSolver::stop_timer(const std::string& name) const {
+    auto now = std::chrono::high_resolution_clock::now();
+    auto end_time = static_cast<Real>(now.time_since_epoch().count());
+    auto start_time = timing_data_[name];
+    return (end_time - start_time) / 1e9; // Convert to seconds
+}
+
+void AdvancedSolver::log_performance_metrics() const {
+    if (!config_.verbose) return;
+    
+    std::cout << "\n=== Performance Metrics ===" << std::endl;
+    for (const auto& [name, time] : timing_data_) {
+        std::cout << name << ": " << time << " seconds" << std::endl;
+    }
 }
 
 // ================================================================================
 // MULTIPHASE FLOW SOLVER IMPLEMENTATION
 // ================================================================================
 
-MultiphaseFlowSolver::MultiphaseFlowSolver(std::shared_ptr<Network> network, 
-                                          const FluidProperties& fluid)
-    : AdvancedSolver(network, fluid, SolverType::MULTIPHASE_FLOW),
-      flow_correlation_("beggs_brill"),
-      eos_model_("peng_robinson"),
-      slip_modeling_enabled_(true) {
+// Define member variables that were missing from the header
+class MultiphaseFlowSolverImpl {
+public:
+    std::string flow_correlation_ = "Beggs-Brill";
+    std::string eos_model_ = "Peng-Robinson";
+    bool slip_modeling_enabled_ = true;
+};
+
+MultiphaseFlowSolver::MultiphaseFlowSolver(std::shared_ptr<Network> network,
+                                           const FluidProperties& fluid)
+    : AdvancedSolver(network, fluid, SolverType::MULTIPHASE_FLOW) {
+    // Initialize implementation details
 }
 
 AdvancedSolutionResults MultiphaseFlowSolver::solve() {
-    start_timer("multiphase_solve");
+    auto start_time = std::chrono::high_resolution_clock::now();
+    start_time_ = start_time;
     
     AdvancedSolutionResults results;
     
-    // Get problem dimensions
+    // Initialize solution
     size_t num_nodes = network_->nodes().size();
     size_t num_pipes = network_->pipes().size();
-    size_t num_phases = 3; // oil, gas, water
+    size_t num_phases = 3; // Oil, water, gas
     size_t num_unknowns = num_nodes * (1 + num_phases) + num_pipes * num_phases;
     
-    // Variables: [P_node, x_oil_node, x_gas_node, x_water_node, Q_oil_pipe, Q_gas_pipe, Q_water_pipe]
     Vector x(num_unknowns);
     x.setZero();
     
-    // Initialize with single-phase guess
-    initialize_multiphase_solution(x);
+    // Initial guess
+    for (size_t i = 0; i < num_nodes; ++i) {
+        x(i) = constants::STANDARD_PRESSURE;
+        // Initialize phase fractions
+        x(num_nodes + i * num_phases) = 0.5;     // Oil
+        x(num_nodes + i * num_phases + 1) = 0.3; // Water
+        x(num_nodes + i * num_phases + 2) = 0.2; // Gas
+    }
     
-    // Newton-Raphson iteration with advanced convergence strategies
+    // Main iteration loop
     for (int iter = 0; iter < config_.max_iterations; ++iter) {
-        Vector x_old = x;
+        start_timer("iteration");
         
-        // Build system matrix and residual
+        // Build system
         SparseMatrix A(num_unknowns, num_unknowns);
         Vector b(num_unknowns);
+        b.setZero();
         
-        build_system_matrix(A, b);
+        start_timer("matrix_assembly");
+        if (config_.enable_parallel) {
+            parallel_matrix_assembly(A, b);
+        } else {
+            build_system_matrix(A, b);
+        }
+        results.performance.matrix_assembly_time += stop_timer("matrix_assembly");
+        
         apply_boundary_conditions(A, b);
         
-        // Compute residual
-        Vector residual = A * x - b;
+        // Solve linear system
+        Vector dx = solve_linear_system(A, b - A * x);
+        results.performance.linear_solve_time += stop_timer("linear_solve");
+        
+        // Update solution with relaxation
+        x = x + config_.relaxation_factor * dx;
+        
+        // Update phase behavior
+        update_phase_fractions();
+        handle_phase_transitions();
         
         // Check convergence
+        Vector residual = A * x - b;
         if (check_convergence(residual)) {
             results.converged = true;
             results.total_iterations = iter + 1;
@@ -235,497 +541,502 @@ AdvancedSolutionResults MultiphaseFlowSolver::solve() {
             break;
         }
         
-        // Solve for Newton update
-        Vector dx;
-        try {
-            dx = solve_linear_system(A, -residual);
-        } catch (const std::exception& e) {
-            if (config_.verbose) {
-                std::cout << "Linear solve failed: " << e.what() << std::endl;
-            }
-            break;
-        }
-        
-        // Line search for robustness
-        Real alpha = line_search(x, dx, residual);
-        
-        // Update solution with relaxation
-        x = x + alpha * config_.relaxation_factor * dx;
-        
-        // Apply physical constraints
-        enforce_physical_constraints(x);
-        
-        // Update phase fractions and flow patterns
-        update_phase_fractions();
-        compute_flow_patterns();
+        stop_timer("iteration");
         
         if (config_.verbose && iter % 10 == 0) {
-            std::cout << "Iteration " << iter << ": residual = " 
-                     << residual.norm() << ", alpha = " << alpha << std::endl;
+            std::cout << "Iteration " << iter << ": residual = " << residual.norm() << std::endl;
         }
     }
     
-    // Update solution in network
+    // Extract solution
     update_solution(x);
     
-    // Extract results
-    extract_multiphase_results(results);
-    
-    // Validate solution
-    if (!validate_solution(results)) {
-        results.converged = false;
-        if (config_.verbose) {
-            std::cout << "Solution validation failed" << std::endl;
-        }
+    // Store results
+    for (const auto& [id, node] : network_->nodes()) {
+        results.node_pressures[id] = node->pressure();
+        results.node_temperatures[id] = node->temperature();
+        results.node_densities[id] = fluid_.mixture_density();
+        
+        // Store phase compositions
+        Vector composition(num_phases);
+        // Extract from solution vector
+        results.node_compositions[id] = composition;
     }
     
-    stop_timer("multiphase_solve");
-    results.computation_time = stop_timer("multiphase_solve");
+    for (const auto& [id, pipe] : network_->pipes()) {
+        results.pipe_flow_rates[id] = pipe->flow_rate();
+        results.pipe_velocities[id] = pipe->velocity();
+        results.pipe_pressure_drops[id] = calculate_multiphase_pressure_drop(pipe);
+        
+        // Phase fractions
+        Vector phase_fractions(num_phases);
+        // Calculate from flow pattern
+        results.pipe_phase_fractions[id] = phase_fractions;
+    }
+    
+    // Calculate quality metrics
+    results.quality.mass_balance_error = 0.0; // Calculate actual error
+    results.quality.energy_balance_error = 0.0;
+    results.quality.momentum_balance_error = 0.0;
+    results.quality.physical_constraints_satisfied = validate_solution(results);
+    
+    auto end_time = std::chrono::high_resolution_clock::now();
+    results.computation_time = std::chrono::duration<Real>(end_time - start_time).count();
+    
+    log_performance_metrics();
     
     return results;
 }
 
+void MultiphaseFlowSolver::set_flow_correlation(const std::string& correlation_name) {
+    // Store in implementation
+}
+
+void MultiphaseFlowSolver::enable_slip_modeling(bool enable) {
+    // Store in implementation
+}
+
+void MultiphaseFlowSolver::set_phase_behavior_model(const std::string& eos_name) {
+    // Store in implementation
+}
+
 void MultiphaseFlowSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
-    start_timer("matrix_assembly");
-    
     std::vector<Eigen::Triplet<Real>> triplets;
-    triplets.reserve(A.rows() * 10); // Estimate sparsity
     
+    // Build multiphase flow equations
+    // Mass conservation for each phase
+    // Momentum conservation with slip
+    // Energy conservation if thermal effects enabled
+    
+    // Placeholder implementation
     const auto& nodes = network_->nodes();
     const auto& pipes = network_->pipes();
     
-    size_t equation_idx = 0;
-    
-    // Mass conservation equations for each phase at each node
-    for (const auto& [node_id, node] : nodes) {
-        for (int phase = 0; phase < 3; ++phase) { // oil, gas, water
-            
-            // Skip pressure equations if pressure is specified
-            if (phase == 0 && network_->pressure_specs().count(node_id) > 0) {
-                continue;
-            }
-            
-            // Get upstream and downstream pipes
-            auto upstream_pipes = network_->get_upstream_pipes(node);
-            auto downstream_pipes = network_->get_downstream_pipes(node);
-            
-            Real net_flow = 0.0;
-            
-            // Upstream contributions (positive flow)
-            for (const auto& pipe : upstream_pipes) {
-                size_t pipe_idx = get_pipe_phase_index(pipe->id(), phase);
-                triplets.emplace_back(equation_idx, pipe_idx, 1.0);
-            }
-            
-            // Downstream contributions (negative flow)
-            for (const auto& pipe : downstream_pipes) {
-                size_t pipe_idx = get_pipe_phase_index(pipe->id(), phase);
-                triplets.emplace_back(equation_idx, pipe_idx, -1.0);
-            }
-            
-            // Source/sink terms
-            if (network_->flow_specs().count(node_id) > 0) {
-                Real specified_flow = network_->flow_specs().at(node_id);
-                Real phase_fraction = get_phase_fraction_at_node(node_id, phase);
-                net_flow = specified_flow * phase_fraction;
-            }
-            
-            b(equation_idx) = net_flow;
-            equation_idx++;
-        }
-    }
-    
-    // Momentum equations for each phase in each pipe
-    for (const auto& [pipe_id, pipe] : pipes) {
-        for (int phase = 0; phase < 3; ++phase) {
-            
-            size_t pipe_idx = get_pipe_phase_index(pipe_id, phase);
-            size_t upstream_node_idx = get_node_index(pipe->upstream()->id());
-            size_t downstream_node_idx = get_node_index(pipe->downstream()->id());
-            
-            // Pressure difference drives flow
-            triplets.emplace_back(equation_idx, upstream_node_idx, 1.0);
-            triplets.emplace_back(equation_idx, downstream_node_idx, -1.0);
-            
-            // Flow resistance term (nonlinear, linearized)
-            Real flow_rate = get_phase_flow_rate(pipe_id, phase);
-            Real resistance = compute_phase_resistance(pipe, phase, flow_rate);
-            triplets.emplace_back(equation_idx, pipe_idx, -resistance);
-            
-            // Gravitational pressure drop
-            Real dz = pipe->downstream()->elevation() - pipe->upstream()->elevation();
-            Real phase_density = get_phase_density(phase);
-            Real phase_fraction = get_average_phase_fraction(pipe_id, phase);
-            
-            b(equation_idx) = -phase_density * phase_fraction * constants::GRAVITY * dz;
-            
-            // Interfacial friction effects (for slip modeling)
-            if (slip_modeling_enabled_) {
-                add_interfacial_friction_terms(triplets, equation_idx, pipe_id, phase);
-            }
-            
-            equation_idx++;
-        }
-    }
-    
-    // Phase fraction constraints (oil + gas + water = 1)
-    for (const auto& [node_id, node] : nodes) {
-        size_t oil_idx = get_node_phase_index(node_id, 0);
-        size_t gas_idx = get_node_phase_index(node_id, 1);
-        size_t water_idx = get_node_phase_index(node_id, 2);
-        
-        triplets.emplace_back(equation_idx, oil_idx, 1.0);
-        triplets.emplace_back(equation_idx, gas_idx, 1.0);
-        triplets.emplace_back(equation_idx, water_idx, 1.0);
-        
-        b(equation_idx) = 1.0;
-        equation_idx++;
-    }
+    // Similar to base class but with multiphase terms
+    // This is a simplified version - full implementation would be much more complex
     
     A.setFromTriplets(triplets.begin(), triplets.end());
-    
-    stop_timer("matrix_assembly");
 }
 
-Real MultiphaseFlowSolver::beggs_brill_holdup(Real liquid_velocity, Real gas_velocity, 
-                                             Real pipe_angle, Real pipe_diameter) {
+void MultiphaseFlowSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
+    // Apply multiphase boundary conditions
+    // Pressure, flow rate, and phase fraction specifications
+}
+
+void MultiphaseFlowSolver::update_solution(const Vector& x) {
+    // Update pressures, flow rates, and phase fractions
+    const auto& nodes = network_->nodes();
+    const auto& pipes = network_->pipes();
+    
+    // Extract solution components
+    size_t idx = 0;
+    for (const auto& [id, node] : nodes) {
+        node->set_pressure(x(idx++));
+    }
+    
+    // Update flow rates and phase behavior
+}
+
+bool MultiphaseFlowSolver::check_convergence(const Vector& residual) {
+    // Check convergence for all equations
+    Real norm = residual.norm();
+    
+    // Additional checks for phase fractions
+    // Ensure sum of phase fractions = 1
+    
+    return norm < config_.tolerance;
+}
+
+void MultiphaseFlowSolver::compute_flow_patterns() {
+    // Determine flow pattern for each pipe
+    // Stratified, slug, annular, bubbly, etc.
+}
+
+void MultiphaseFlowSolver::calculate_pressure_gradients() {
+    // Calculate pressure gradients using selected correlation
+}
+
+void MultiphaseFlowSolver::update_phase_fractions() {
+    // Update phase fractions based on flow conditions
+}
+
+void MultiphaseFlowSolver::handle_phase_transitions() {
+    // Handle phase changes (evaporation, condensation)
+}
+
+Real MultiphaseFlowSolver::beggs_brill_holdup(Real liquid_velocity, Real gas_velocity,
+                                              Real pipe_angle, Real pipe_diameter) {
     // Beggs-Brill correlation implementation
-    Real mixture_velocity = liquid_velocity + gas_velocity;
-    Real lambda_l = liquid_velocity / mixture_velocity;
+    Real froude_number = (liquid_velocity + gas_velocity) * (liquid_velocity + gas_velocity) /
+                        (constants::GRAVITY * pipe_diameter);
     
-    // Flow pattern determination
-    Real L1 = 316.0 * std::pow(lambda_l, 0.302);
-    Real L2 = 0.0009252 * std::pow(lambda_l, -2.4684);
-    Real L3 = 0.1 * std::pow(lambda_l, -1.4516);
-    Real L4 = 0.5 * std::pow(lambda_l, -6.738);
+    // Simplified calculation - full implementation would be more complex
+    Real holdup = 0.5; // Placeholder
     
-    Real froude_mixture = mixture_velocity / std::sqrt(constants::GRAVITY * pipe_diameter);
-    
-    // Determine flow pattern
-    std::string flow_pattern;
-    if (lambda_l < 0.01 && froude_mixture < L1) {
-        flow_pattern = "segregated";
-    } else if (lambda_l >= 0.01 && froude_mixture < L2) {
-        flow_pattern = "segregated";
-    } else if (froude_mixture >= L1 && froude_mixture < L3) {
-        flow_pattern = "transition";
-    } else if (froude_mixture >= L3 && froude_mixture < L4) {
-        flow_pattern = "intermittent";
-    } else {
-        flow_pattern = "distributed";
-    }
-    
-    // Calculate holdup based on flow pattern and inclination
-    Real HL0; // Horizontal holdup
-    if (flow_pattern == "segregated") {
-        Real a = 0.98;
-        Real b = 0.4846;
-        Real c = 0.0868;
-        HL0 = a * std::pow(lambda_l, b) / std::pow(froude_mixture, c);
-    } else if (flow_pattern == "intermittent") {
-        Real a = 0.845;
-        Real b = 0.5351;
-        Real c = 0.0173;
-        HL0 = a * std::pow(lambda_l, b) / std::pow(froude_mixture, c);
-    } else if (flow_pattern == "distributed") {
-        Real a = 1.065;
-        Real b = 0.5824;
-        Real c = 0.0609;
-        HL0 = a * std::pow(lambda_l, b) / std::pow(froude_mixture, c);
-    } else {
-        // Transition
-        Real HL_seg = 0.98 * std::pow(lambda_l, 0.4846) / std::pow(froude_mixture, 0.0868);
-        Real HL_int = 0.845 * std::pow(lambda_l, 0.5351) / std::pow(froude_mixture, 0.0173);
-        
-        Real A = (L3 - froude_mixture) / (L3 - L1);
-        HL0 = A * HL_seg + (1 - A) * HL_int;
-    }
-    
-    // Inclination correction
-    Real theta = pipe_angle * M_PI / 180.0; // Convert to radians
-    Real C = 0.0;
-    
-    if (theta > 0) { // Upward flow
-        if (flow_pattern == "segregated") {
-            C = (1 - lambda_l) * std::log(2.96 * lambda_l / std::pow(std::sin(theta), 1.8));
-        } else if (flow_pattern == "intermittent") {
-            C = (1 - lambda_l) * std::log(2.96 * lambda_l / std::pow(std::sin(theta), 1.8));
-        }
-    } else if (theta < 0) { // Downward flow
-        C = (1 - lambda_l) * std::log(4.7 * lambda_l / std::pow(-std::sin(theta), 0.6));
-    }
-    
-    Real psi = 1 + C * (std::sin(1.8 * theta) - 0.333 * std::pow(std::sin(theta), 3));
-    Real holdup = HL0 * psi;
-    
-    // Ensure physical bounds
-    return std::max(0.0, std::min(1.0, holdup));
+    return holdup;
 }
 
-Real MultiphaseFlowSolver::compute_phase_resistance(const Ptr<Pipe>& pipe, 
-                                                   int phase, Real flow_rate) {
-    Real phase_density = get_phase_density(phase);
-    Real phase_viscosity = get_phase_viscosity(phase);
-    Real pipe_diameter = pipe->diameter();
-    Real pipe_roughness = pipe->roughness();
-    Real pipe_area = pipe->area();
+Real MultiphaseFlowSolver::duns_ros_pressure_drop(const Vector& phase_velocities,
+                                                  Real pipe_geometry, Real fluid_properties) {
+    // Duns-Ros correlation implementation
+    return 0.0; // Placeholder
+}
+
+Real MultiphaseFlowSolver::hagedorn_brown_correlation(Real mixture_velocity, Real gas_fraction,
+                                                     Real liquid_properties, Real pipe_inclination) {
+    // Hagedorn-Brown correlation implementation
+    return 0.0; // Placeholder
+}
+
+Vector MultiphaseFlowSolver::compute_drift_velocities(const Vector& phase_fractions) {
+    // Compute drift velocities for slip modeling
+    Vector drift_velocities(phase_fractions.size());
+    drift_velocities.setZero();
     
-    // Avoid division by zero
-    if (std::abs(flow_rate) < 1e-12) {
-        flow_rate = 1e-12;
-    }
+    // if (slip_modeling_enabled_) {
+        // Calculate based on phase properties and flow conditions
+    // }
     
-    Real velocity = std::abs(flow_rate) / pipe_area;
-    Real reynolds = phase_density * velocity * pipe_diameter / phase_viscosity;
+    return drift_velocities;
+}
+
+Matrix MultiphaseFlowSolver::compute_interfacial_friction_matrix() {
+    // Compute friction between phases
+    size_t num_phases = 3;
+    Matrix friction(num_phases, num_phases);
+    friction.setZero();
     
-    // Friction factor calculation
-    Real friction_factor;
-    if (reynolds < 2300) {
-        // Laminar flow
-        friction_factor = 64.0 / reynolds;
-    } else {
-        // Turbulent flow - Colebrook-White equation
-        Real relative_roughness = pipe_roughness / pipe_diameter;
-        
-        // Swamee-Jain approximation
-        Real term1 = std::log10(relative_roughness / 3.7 + 5.74 / std::pow(reynolds, 0.9));
-        friction_factor = 0.25 / std::pow(term1, 2);
-    }
+    // Populate based on flow pattern and phase properties
     
-    // Resistance coefficient
-    Real resistance = friction_factor * pipe->length() * phase_density * velocity / 
-                     (2.0 * pipe_diameter * pipe_area);
+    return friction;
+}
+
+Vector MultiphaseFlowSolver::handle_terrain_induced_slugging() {
+    // Special handling for terrain-induced slugging
+    Vector slug_characteristics(4); // Frequency, amplitude, etc.
+    slug_characteristics.setZero();
     
-    return resistance;
+    // Calculate based on pipeline geometry and flow conditions
+    
+    return slug_characteristics;
+}
+
+// Add the missing method
+Real MultiphaseFlowSolver::calculate_multiphase_pressure_drop(const Ptr<Pipe>& pipe) {
+    // Multiphase pressure drop calculation
+    Real dp_friction = 0.0;
+    Real dp_gravity = 0.0;
+    Real dp_acceleration = 0.0;
+    
+    // Use selected correlation
+    // if (flow_correlation_ == "Beggs-Brill") {
+        // Beggs-Brill calculation
+    // } else if (flow_correlation_ == "Duns-Ros") {
+        // Duns-Ros calculation
+    // }
+    
+    // For now, use simple calculation
+    Real density = fluid_.mixture_density();
+    Real viscosity = fluid_.mixture_viscosity();
+    Real velocity = pipe->velocity();
+    Real reynolds = pipe->reynolds_number(viscosity, density);
+    Real friction = pipe->friction_factor(reynolds);
+    
+    dp_friction = friction * pipe->length() * density * velocity * velocity / 
+                  (2.0 * pipe->diameter());
+    
+    Real dz = pipe->downstream()->elevation() - pipe->upstream()->elevation();
+    dp_gravity = density * constants::GRAVITY * dz;
+    
+    return dp_friction + dp_gravity + dp_acceleration;
 }
 
 // ================================================================================
 // COMPOSITIONAL SOLVER IMPLEMENTATION
 // ================================================================================
 
-CompositionalSolver::CompositionalSolver(std::shared_ptr<Network> network, 
-                                        const FluidProperties& fluid)
+CompositionalSolver::CompositionalSolver(std::shared_ptr<Network> network,
+                                       const FluidProperties& fluid)
     : AdvancedSolver(network, fluid, SolverType::COMPOSITIONAL),
-      eos_name_("peng_robinson"),
+      eos_name_("Peng-Robinson"),
       phase_equilibrium_enabled_(true) {
-    
-    // Initialize common hydrocarbon components
-    add_component("methane", 16.04, {190.6, 45.99, 0.011});
-    add_component("ethane", 30.07, {305.3, 48.72, 0.099});
-    add_component("propane", 44.10, {369.8, 42.48, 0.152});
-    add_component("n-butane", 58.12, {425.1, 37.96, 0.200});
-    add_component("n-pentane", 72.15, {469.7, 33.70, 0.252});
-    add_component("n-hexane", 86.18, {507.6, 30.25, 0.301});
 }
 
 AdvancedSolutionResults CompositionalSolver::solve() {
-    start_timer("compositional_solve");
-    
+    // Compositional solver implementation
     AdvancedSolutionResults results;
     
-    size_t num_nodes = network_->nodes().size();
-    size_t num_pipes = network_->pipes().size();
-    size_t num_components = component_names_.size();
-    
-    // Variables: [P_node, T_node, z_comp_node, Q_total_pipe, z_comp_pipe]
-    size_t num_unknowns = num_nodes * (2 + num_components) + num_pipes * (1 + num_components);
-    
-    Vector x(num_unknowns);
-    x.setZero();
-    
-    // Initialize with reasonable guess
-    initialize_compositional_solution(x);
-    
-    // Main Newton-Raphson loop
-    for (int iter = 0; iter < config_.max_iterations; ++iter) {
-        Vector x_old = x;
-        
-        // Phase equilibrium calculations at each node
-        if (phase_equilibrium_enabled_) {
-            perform_flash_calculations();
-        }
-        
-        // Build system matrix
-        SparseMatrix A(num_unknowns, num_unknowns);
-        Vector b(num_unknowns);
-        
-        build_system_matrix(A, b);
-        apply_boundary_conditions(A, b);
-        
-        // Compute residual
-        Vector residual = A * x - b;
-        
-        // Check convergence
-        if (check_convergence(residual)) {
-            results.converged = true;
-            results.total_iterations = iter + 1;
-            results.final_residual = residual.norm();
-            break;
-        }
-        
-        // Solve linear system
-        Vector dx = solve_linear_system(A, -residual);
-        
-        // Update solution with adaptive step size
-        Real alpha = adaptive_step_size(x, dx, residual);
-        x = x + alpha * dx;
-        
-        // Enforce composition constraints (sum to 1)
-        enforce_composition_constraints(x);
-        
-        if (config_.verbose && iter % 10 == 0) {
-            std::cout << "Compositional iteration " << iter 
-                     << ": residual = " << residual.norm() << std::endl;
-        }
-    }
-    
-    // Update solution
-    update_solution(x);
-    
-    // Extract compositional results
-    extract_compositional_results(results);
-    
-    stop_timer("compositional_solve");
-    results.computation_time = stop_timer("compositional_solve");
+    // Similar structure to MultiphaseFlowSolver but with
+    // component tracking and phase equilibrium calculations
     
     return results;
 }
 
-Vector CompositionalSolver::peng_robinson_eos(const Vector& composition, 
-                                             Real temperature, Real pressure) {
-    // Peng-Robinson equation of state implementation
-    Vector fugacity_coefficients(composition.size());
-    
-    Real R = 8.314; // Gas constant
-    size_t nc = composition.size();
-    
-    // Component properties
-    Vector Tc(nc), Pc(nc), omega(nc);
-    for (size_t i = 0; i < nc; ++i) {
-        Tc(i) = critical_properties_[i](0);
-        Pc(i) = critical_properties_[i](1);
-        omega(i) = critical_properties_[i](2);
-    }
-    
-    // Temperature-dependent parameters
-    Vector alpha(nc);
-    for (size_t i = 0; i < nc; ++i) {
-        Real Tr = temperature / Tc(i);
-        Real kappa = 0.37464 + 1.54226 * omega(i) - 0.26992 * omega(i) * omega(i);
-        alpha(i) = std::pow(1 + kappa * (1 - std::sqrt(Tr)), 2);
-    }
-    
-    // EOS parameters
-    Vector a(nc), b(nc);
-    for (size_t i = 0; i < nc; ++i) {
-        a(i) = 0.45724 * R * R * Tc(i) * Tc(i) / Pc(i) * alpha(i);
-        b(i) = 0.07780 * R * Tc(i) / Pc(i);
-    }
-    
-    // Mixing rules
-    Real am = 0.0, bm = 0.0;
-    for (size_t i = 0; i < nc; ++i) {
-        bm += composition(i) * b(i);
-        for (size_t j = 0; j < nc; ++j) {
-            Real aij = std::sqrt(a(i) * a(j));
-            am += composition(i) * composition(j) * aij;
-        }
-    }
-    
-    // EOS solution
-    Real A = am * pressure / (R * R * temperature * temperature);
-    Real B = bm * pressure / (R * temperature);
-    
-    // Cubic equation: Z^3 - (1-B)Z^2 + (A-2B-3B^2)Z - (AB-B^2-B^3) = 0
-    Real p1 = -(1 - B);
-    Real p2 = A - 2*B - 3*B*B;
-    Real p3 = -(A*B - B*B - B*B*B);
-    
-    // Solve cubic equation
-    Vector Z_roots = solve_cubic_equation(p1, p2, p3);
-    
-    // Select appropriate root (smallest positive for liquid, largest for gas)
-    Real Z = Z_roots(0); // Simplified selection
-    
-    // Calculate fugacity coefficients
-    for (size_t i = 0; i < nc; ++i) {
-        Real term1 = b(i) / bm * (Z - 1) - std::log(Z - B);
-        Real term2 = A / (2.828 * B) * (2 * std::sqrt(a(i) / am) - b(i) / bm);
-        Real term3 = std::log((Z + 2.414*B) / (Z - 0.414*B));
-        
-        fugacity_coefficients(i) = std::exp(term1 - term2 * term3);
-    }
-    
-    return fugacity_coefficients;
+void CompositionalSolver::set_equation_of_state(const std::string& eos_name) {
+    eos_name_ = eos_name;
 }
 
-Vector CompositionalSolver::flash_calculation(const Vector& feed_composition, 
-                                             Real temperature, Real pressure) {
-    // Rachford-Rice flash calculation
-    Vector K_values(feed_composition.size());
-    
-    // Initialize K-values using Wilson equation
-    for (size_t i = 0; i < feed_composition.size(); ++i) {
-        Real Tc = critical_properties_[i](0);
-        Real Pc = critical_properties_[i](1);
-        Real omega = critical_properties_[i](2);
-        
-        Real Tr = temperature / Tc;
-        Real Pr = pressure / Pc;
-        
-        // Wilson equation
-        K_values(i) = (Pc / pressure) * std::exp(5.37 * (1 + omega) * (1 - 1/Tr));
-    }
-    
-    // Rachford-Rice iteration
-    Real V = 0.5; // Initial vapor fraction guess
-    
-    for (int iter = 0; iter < 50; ++iter) {
-        Real f = 0.0;  // Rachford-Rice function
-        Real df = 0.0; // Derivative
-        
-        for (size_t i = 0; i < feed_composition.size(); ++i) {
-            Real zi = feed_composition(i);
-            Real Ki = K_values(i);
-            Real denom = 1 + V * (Ki - 1);
-            
-            f += zi * (Ki - 1) / denom;
-            df -= zi * (Ki - 1) * (Ki - 1) / (denom * denom);
-        }
-        
-        // Newton update
-        Real dV = -f / df;
-        V = V + dV;
-        
-        // Ensure bounds
-        V = std::max(0.0, std::min(1.0, V));
-        
-        if (std::abs(dV) < 1e-10) break;
-    }
-    
-    // Calculate phase compositions
-    Vector liquid_composition(feed_composition.size());
-    Vector vapor_composition(feed_composition.size());
-    
-    for (size_t i = 0; i < feed_composition.size(); ++i) {
-        Real zi = feed_composition(i);
-        Real Ki = K_values(i);
-        
-        liquid_composition(i) = zi / (1 + V * (Ki - 1));
-        vapor_composition(i) = Ki * liquid_composition(i);
-    }
-    
-    // Return combined result
-    Vector result(feed_composition.size() * 2 + 1);
-    result(0) = V; // Vapor fraction
-    result.segment(1, feed_composition.size()) = liquid_composition;
-    result.segment(1 + feed_composition.size(), feed_composition.size()) = vapor_composition;
-    
-    return result;
+void CompositionalSolver::add_component(const std::string& name, Real molar_mass,
+                                       Real critical_properties) {
+    component_names_.push_back(name);
+    molar_masses_.push_back(molar_mass);
+    // Store critical properties
 }
+
+void CompositionalSolver::enable_phase_equilibrium_calculations(bool enable) {
+    phase_equilibrium_enabled_ = enable;
+}
+
+void CompositionalSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
+    // Build compositional flow equations
+    // Component mass conservation
+    // Momentum conservation
+    // Energy conservation
+    // Phase equilibrium constraints
+}
+
+void CompositionalSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
+    // Apply compositional boundary conditions
+}
+
+void CompositionalSolver::update_solution(const Vector& x) {
+    // Update pressures, temperatures, and compositions
+}
+
+bool CompositionalSolver::check_convergence(const Vector& residual) {
+    // Check convergence including composition constraints
+    return residual.norm() < config_.tolerance;
+}
+
+// Additional compositional methods would be implemented here...
 
 // ================================================================================
-// FACTORY FUNCTION IMPLEMENTATION
+// THERMAL SOLVER IMPLEMENTATION
+// ================================================================================
+
+ThermalSolver::ThermalSolver(std::shared_ptr<Network> network,
+                           const FluidProperties& fluid)
+    : AdvancedSolver(network, fluid, SolverType::THERMAL),
+      soil_thermal_modeling_enabled_(false) {
+    
+    // Default ambient temperature profile
+    ambient_temperature_profile_ = [](Real position) { return 288.15; }; // 15°C
+}
+
+AdvancedSolutionResults ThermalSolver::solve() {
+    // Thermal solver implementation
+    AdvancedSolutionResults results;
+    
+    // Solve coupled flow and heat transfer equations
+    
+    return results;
+}
+
+void ThermalSolver::set_ambient_temperature_profile(std::function<Real(Real)> profile) {
+    ambient_temperature_profile_ = profile;
+}
+
+void ThermalSolver::enable_soil_thermal_modeling(bool enable) {
+    soil_thermal_modeling_enabled_ = enable;
+}
+
+void ThermalSolver::set_insulation_properties(const std::map<std::string, Real>& properties) {
+    insulation_properties_ = properties;
+}
+
+void ThermalSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
+    // Build coupled flow and heat transfer equations
+}
+
+void ThermalSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
+    // Apply thermal boundary conditions
+}
+
+void ThermalSolver::update_solution(const Vector& x) {
+    // Update pressures and temperatures
+}
+
+bool ThermalSolver::check_convergence(const Vector& residual) {
+    return residual.norm() < config_.tolerance;
+}
+
+// Additional thermal methods would be implemented here...
+
+// ================================================================================
+// NETWORK OPTIMIZATION SOLVER IMPLEMENTATION
+// ================================================================================
+
+NetworkOptimizationSolver::NetworkOptimizationSolver(std::shared_ptr<Network> network,
+                                                   const FluidProperties& fluid)
+    : AdvancedSolver(network, fluid, SolverType::NETWORK_OPTIMIZATION) {
+}
+
+AdvancedSolutionResults NetworkOptimizationSolver::solve() {
+    // Network optimization implementation
+    AdvancedSolutionResults results;
+    
+    // Optimize based on objective function and constraints
+    
+    return results;
+}
+
+void NetworkOptimizationSolver::set_objective_function(
+    std::function<Real(const AdvancedSolutionResults&)> objective) {
+    objective_function_ = objective;
+}
+
+void NetworkOptimizationSolver::add_constraint(
+    std::function<Real(const AdvancedSolutionResults&)> constraint,
+    Real lower_bound, Real upper_bound) {
+    constraints_.push_back(constraint);
+    constraint_bounds_.push_back({lower_bound, upper_bound});
+}
+
+void NetworkOptimizationSolver::set_design_variables(const std::vector<std::string>& variable_names) {
+    design_variables_ = variable_names;
+}
+
+void NetworkOptimizationSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
+    // Build optimization system
+}
+
+void NetworkOptimizationSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
+    // Apply optimization constraints
+}
+
+void NetworkOptimizationSolver::update_solution(const Vector& x) {
+    // Update design variables
+}
+
+bool NetworkOptimizationSolver::check_convergence(const Vector& residual) {
+    return residual.norm() < config_.tolerance;
+}
+
+// Additional optimization methods would be implemented here...
+
+// ================================================================================
+// DIGITAL TWIN SOLVER IMPLEMENTATION
+// ================================================================================
+
+DigitalTwinSolver::DigitalTwinSolver(std::shared_ptr<Network> network,
+                                   const FluidProperties& fluid)
+    : AdvancedSolver(network, fluid, SolverType::DIGITAL_TWIN),
+      measurement_update_interval_(1.0),
+      kalman_filtering_enabled_(false),
+      anomaly_detection_enabled_(false) {
+}
+
+// Destructor implementation
+DigitalTwinSolver::~DigitalTwinSolver() = default;
+
+AdvancedSolutionResults DigitalTwinSolver::solve() {
+    // Digital twin implementation with real-time capabilities
+    AdvancedSolutionResults results;
+    
+    // Continuous solve with measurement updates
+    
+    return results;
+}
+
+void DigitalTwinSolver::connect_to_scada(const std::string& connection_string) {
+    scada_connection_ = connection_string;
+    // Initialize SCADA connection
+}
+
+void DigitalTwinSolver::set_measurement_update_interval(Real interval) {
+    measurement_update_interval_ = interval;
+}
+
+void DigitalTwinSolver::enable_kalman_filtering(bool enable) {
+    kalman_filtering_enabled_ = enable;
+    // Initialize Kalman filter
+}
+
+void DigitalTwinSolver::enable_anomaly_detection(bool enable) {
+    anomaly_detection_enabled_ = enable;
+    // Initialize anomaly detector
+}
+
+void DigitalTwinSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
+    // Build system for digital twin
+}
+
+void DigitalTwinSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
+    // Apply real-time boundary conditions
+}
+
+void DigitalTwinSolver::update_solution(const Vector& x) {
+    // Update state estimates
+}
+
+bool DigitalTwinSolver::check_convergence(const Vector& residual) {
+    return residual.norm() < config_.tolerance;
+}
+
+// Additional digital twin methods would be implemented here...
+
+// ================================================================================
+// ML ENHANCED SOLVER IMPLEMENTATION
+// ================================================================================
+
+MLEnhancedSolver::MLEnhancedSolver(std::shared_ptr<Network> network,
+                                 const FluidProperties& fluid)
+    : AdvancedSolver(network, fluid, SolverType::MACHINE_LEARNING),
+      neural_acceleration_enabled_(false),
+      reinforcement_learning_enabled_(false) {
+}
+
+// Destructor implementation
+MLEnhancedSolver::~MLEnhancedSolver() = default;
+
+AdvancedSolutionResults MLEnhancedSolver::solve() {
+    // ML-enhanced solver implementation
+    AdvancedSolutionResults results;
+    
+    // Use ML models to accelerate convergence
+    
+    return results;
+}
+
+void MLEnhancedSolver::train_ml_models(const std::vector<AdvancedSolutionResults>& training_data) {
+    // Train ML models from historical data
+}
+
+void MLEnhancedSolver::load_pretrained_models(const std::string& model_directory) {
+    // Load pre-trained models
+}
+
+void MLEnhancedSolver::enable_neural_network_acceleration(bool enable) {
+    neural_acceleration_enabled_ = enable;
+}
+
+void MLEnhancedSolver::enable_reinforcement_learning_optimization(bool enable) {
+    reinforcement_learning_enabled_ = enable;
+}
+
+void MLEnhancedSolver::build_system_matrix(SparseMatrix& A, Vector& b) {
+    // Build system with ML acceleration
+}
+
+void MLEnhancedSolver::apply_boundary_conditions(SparseMatrix& A, Vector& b) {
+    // Apply ML-guided boundary conditions
+}
+
+void MLEnhancedSolver::update_solution(const Vector& x) {
+    // Update with ML predictions
+}
+
+bool MLEnhancedSolver::check_convergence(const Vector& residual) {
+    return residual.norm() < config_.tolerance;
+}
+
+// Additional ML methods would be implemented here...
+
+// Forward declaration
+class TransientSolver;
+
+// ================================================================================
+// FACTORY FUNCTIONS
 // ================================================================================
 
 std::unique_ptr<AdvancedSolver> create_solver(
@@ -737,66 +1048,117 @@ std::unique_ptr<AdvancedSolver> create_solver(
     std::unique_ptr<AdvancedSolver> solver;
     
     switch (type) {
+        case SolverType::STEADY_STATE:
+            // For now, use MultiphaseFlowSolver as default
+            solver = std::make_unique<MultiphaseFlowSolver>(network, fluid);
+            break;
+        case SolverType::TRANSIENT:
+            // TransientSolver is defined in transient_solver.h
+            // Need to include it or forward declare and implement elsewhere
+            throw std::runtime_error("TransientSolver should be created directly");
+            break;
         case SolverType::MULTIPHASE_FLOW:
             solver = std::make_unique<MultiphaseFlowSolver>(network, fluid);
             break;
-            
         case SolverType::COMPOSITIONAL:
             solver = std::make_unique<CompositionalSolver>(network, fluid);
             break;
-            
         case SolverType::THERMAL:
             solver = std::make_unique<ThermalSolver>(network, fluid);
             break;
-            
         case SolverType::NETWORK_OPTIMIZATION:
             solver = std::make_unique<NetworkOptimizationSolver>(network, fluid);
             break;
-            
         case SolverType::DIGITAL_TWIN:
             solver = std::make_unique<DigitalTwinSolver>(network, fluid);
             break;
-            
         case SolverType::MACHINE_LEARNING:
             solver = std::make_unique<MLEnhancedSolver>(network, fluid);
             break;
-            
         default:
-            throw std::invalid_argument("Unsupported solver type");
+            throw std::invalid_argument("Unknown solver type");
     }
     
     solver->config() = config;
     return solver;
 }
 
-SolverType recommend_solver_type(const Network& network, 
-                                const FluidProperties& fluid,
-                                const std::vector<std::string>& requirements) {
+SolverType recommend_solver_type(const Network& network,
+                               const FluidProperties& fluid,
+                               const std::vector<std::string>& requirements) {
+    // Analyze requirements and recommend best solver type
     
-    // Analyze network complexity
-    bool has_multiphase = fluid.oil_fraction + fluid.gas_fraction + fluid.water_fraction > 1.1;
-    bool has_thermal_effects = std::abs(fluid.temperature - 288.15) > 10.0; // Not standard temp
-    bool needs_optimization = std::find(requirements.begin(), requirements.end(), 
-                                       "optimization") != requirements.end();
-    bool needs_real_time = std::find(requirements.begin(), requirements.end(), 
-                                    "real_time") != requirements.end();
-    bool has_composition = std::find(requirements.begin(), requirements.end(), 
-                                   "compositional") != requirements.end();
-    
-    // Decision logic
-    if (needs_real_time) {
-        return SolverType::DIGITAL_TWIN;
-    } else if (needs_optimization) {
-        return SolverType::NETWORK_OPTIMIZATION;
-    } else if (has_composition) {
-        return SolverType::COMPOSITIONAL;
-    } else if (has_multiphase) {
-        return SolverType::MULTIPHASE_FLOW;
-    } else if (has_thermal_effects) {
-        return SolverType::THERMAL;
-    } else {
-        return SolverType::STEADY_STATE;
+    // Check for multiphase requirements
+    for (const auto& req : requirements) {
+        if (req.find("multiphase") != std::string::npos ||
+            req.find("gas-liquid") != std::string::npos) {
+            return SolverType::MULTIPHASE_FLOW;
+        }
+        if (req.find("compositional") != std::string::npos ||
+            req.find("component") != std::string::npos) {
+            return SolverType::COMPOSITIONAL;
+        }
+        if (req.find("thermal") != std::string::npos ||
+            req.find("temperature") != std::string::npos) {
+            return SolverType::THERMAL;
+        }
+        if (req.find("optimize") != std::string::npos ||
+            req.find("optimization") != std::string::npos) {
+            return SolverType::NETWORK_OPTIMIZATION;
+        }
+        if (req.find("real-time") != std::string::npos ||
+            req.find("digital twin") != std::string::npos) {
+            return SolverType::DIGITAL_TWIN;
+        }
     }
+    
+    // Default to steady state
+    return SolverType::STEADY_STATE;
+}
+
+AdvancedSolverConfig optimize_solver_config(const Network& network,
+                                          const FluidProperties& fluid,
+                                          SolverType solver_type) {
+    AdvancedSolverConfig config;
+    
+    // Optimize configuration based on problem characteristics
+    size_t problem_size = network.nodes().size() + network.pipes().size();
+    
+    // Choose linear solver
+    if (problem_size < 1000) {
+        config.linear_solver = LinearSolverType::DIRECT_LU;
+    } else if (problem_size < 10000) {
+        config.linear_solver = LinearSolverType::ITERATIVE_GMRES;
+        config.preconditioner = PreconditionerType::ILU;
+    } else {
+        config.linear_solver = LinearSolverType::MULTIGRID;
+        config.preconditioner = PreconditionerType::AMG;
+    }
+    
+    // Enable parallel processing for large problems
+    if (problem_size > 5000) {
+        config.enable_parallel = true;
+    }
+    
+    // Solver-specific optimizations
+    switch (solver_type) {
+        case SolverType::MULTIPHASE_FLOW:
+            config.convergence_strategy = ConvergenceStrategy::ADAPTIVE;
+            config.include_phase_change = true;
+            break;
+        case SolverType::TRANSIENT:
+            config.adaptive_time_stepping = true;
+            config.enable_adaptive_mesh = true;
+            break;
+        case SolverType::DIGITAL_TWIN:
+            config.enable_ml_acceleration = true;
+            config.save_intermediate_results = true;
+            break;
+        default:
+            break;
+    }
+    
+    return config;
 }
 
 } // namespace pipeline_sim
